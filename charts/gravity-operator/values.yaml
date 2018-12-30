@@ -1,0 +1,71 @@
+nameOverride: ""
+fullnameOverride: ""
+
+deploymentRules:
+  - group: "default"
+    pipelines: ["*"]
+    image: "moiot/gravity:v0.9.2"
+    command: ["/gravity", "-config=/etc/gravity/config.json"]
+
+operator:
+  image:
+    repository: moiot/gravity-operator
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources: {}
+#    limits:
+#      cpu: 2
+#      memory: 500M
+#    requests:
+#      cpu: 0.5
+#      memory: 100M
+
+tags:
+  gatekeeper: false
+
+admin:
+  image:
+    repository: moiot/gravity-admin
+    tag: v0.1.0
+    pullPolicy: IfNotPresent
+  service:
+    port: 80
+    nodePort: 30066
+  resources: {}
+#    limits:
+#      cpu: 100m
+#      memory: 100M
+#    requests:
+#      cpu: 100m
+#      memory: 100M
+
+gatekeeper:
+  image:
+    repository: moiot/gravity-gatekeeper
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources: {}
+  #    requests:
+  #      cpu: 100m
+  #      memory: 100M
+  service:
+    port: 80
+    nodePort: 30067
+  mysql:
+    source: root@tcp(source-mysql:3306)/?interpolateParams=true&parseTime=true&collation=utf8mb4_general_ci&loc=Local
+    target: root@tcp(target-mysql:3306)/?interpolateParams=true&parseTime=true&collation=utf8mb4_general_ci&loc=Local
+  cases:
+    - name: simple
+      nrTables: 10
+      nrSeedRows: 10000
+      deleteRatio: 0.2
+      insertRatio: 0.5
+      concurrency: 20
+      transactionLength: 5
+
+gravity:
+  service:
+    port: 80

@@ -1,0 +1,13 @@
+apiVersion: gravity.mobike.io/v1alpha1
+kind: Cluster
+metadata:
+  name: {{ include "gravity-operator.fullname" . }}-cluster
+  labels:
+    app.kubernetes.io/name: {{ include "gravity-operator.name" . }}-cluster
+    helm.sh/chart: {{ include "gravity-operator.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  rolling: "25%"
+  deploymentRules:
+{{ toYaml .Values.deploymentRules | indent 4}}
