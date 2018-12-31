@@ -8,6 +8,6 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
-  rolling: "25%"
+  rolling: {{ .Values.operator.rolling }}
   deploymentRules:
 {{ toYaml .Values.deploymentRules | indent 4}}

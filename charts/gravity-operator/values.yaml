@@ -12,6 +12,7 @@ operator:
     repository: moiot/gravity-operator
     tag: latest
     pullPolicy: IfNotPresent
+  rolling: "25%"
   service:
     type: ClusterIP
     port: 80

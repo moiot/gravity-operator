@@ -30,6 +30,7 @@ Parameter | Description | Default Value
 `deploymentRules`| Array of deployment rules which control Gravity deployment versions | See [`DeploymentRules`](#DeploymentRules)  
 `operator.image.repository`| Image of the operator | `moiot/gravity-operator`
 `operator.image.tag`| Image tag of the operator | `v0.1.0`
+`operator.rolling`| The maximum number of pipelines that can be upgraded in parallel. Value can be an absolute number (ex: 5) or a percentage (ex: 10%). | `25%`
 `admin.image.repository`| Image of admin | `moiot/gravity-admin`
 `admin.image.tag`| Image tag of admin | `v0.1.0`
 `admin.service.nodePort`| Node port of the admin service | `30066`
