@@ -93,6 +93,6 @@ require (
 	gopkg.in/yaml.v2 v2.2.2
 	k8s.io/api v0.0.0-20181216230433-16e3e9a3868f
 	k8s.io/apimachinery v0.0.0-20181203235515-3d8ee2261517
-	k8s.io/client-go v2.0.0-alpha.0.0.20181216231014-8a775d0346c8+incompatible
+	k8s.io/client-go v8.0.0+incompatible
 	k8s.io/kube-openapi v0.0.0-20181114233023-0317810137be // indirect
 )

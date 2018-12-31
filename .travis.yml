@@ -12,11 +12,9 @@ jobs:
       name: "build"
       script:
         - make build-linux
+        - make test
         - docker build -t moiot/gravity-operator:${TRAVIS_COMMIT::8} -f Dockerfile.operator .
         - docker build -t moiot/gravity-gatekeeper:${TRAVIS_COMMIT::8} -f Dockerfile.gatekeeper .
-    - name: "test"
-      script: make test
-      after_script: make test-down
     - stage: "publish"
       if: tag IS present
       script:
