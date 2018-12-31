@@ -15,7 +15,7 @@ This document introduces how to deploy, configure and upgrade a Gravity Operator
 ### Installing
 
 ```bash
-$ cd charts/k8s/gravity-operator
+$ cd charts/gravity-operator
 $ helm install --name gravity-operator ./
 ```
 
