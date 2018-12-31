@@ -1,4 +1,5 @@
 # Gravity Operator
+[![Build Status](https://travis-ci.com/moiot/gravity-operator.svg?branch=master)](https://travis-ci.com/moiot/gravity-operator)
 
 Gravity Operator manages Gravity processes on Kubernetes.
 
