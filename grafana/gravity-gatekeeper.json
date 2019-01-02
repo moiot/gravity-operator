@@ -89,7 +89,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(drc_v2_gatekeeper_inconsistent) by (case)",
+          "expr": "sum(gravity_gatekeeper_inconsistent) by (case)",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "{{ case }}",
@@ -175,7 +175,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "increase(drc_v2_gatekeeper_chaos[1m])",
+          "expr": "increase(gravity_gatekeeper_chaos[1m])",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "{{name}} - {{ kind }}",
@@ -256,7 +256,7 @@
     ]
   },
   "timezone": "",
-  "title": "DRC Gatekeeper",
+  "title": "Gravity Gatekeeper",
   "uid": "Pc-QJhPik",
   "version": 10
 }

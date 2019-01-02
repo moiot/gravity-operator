@@ -87,28 +87,28 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "drc_v2_operator_cluster_status{status=\"available\"}",
+          "expr": "gravity_operator_cluster_status{status=\"available\"}",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "available",
           "refId": "A"
         },
         {
-          "expr": "drc_v2_operator_cluster_status{status=\"unavailable\"}",
+          "expr": "gravity_operator_cluster_status{status=\"unavailable\"}",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "unavailable",
           "refId": "B"
         },
         {
-          "expr": "drc_v2_operator_cluster_status{status=\"total\"}",
+          "expr": "gravity_operator_cluster_status{status=\"total\"}",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "total",
           "refId": "C"
         },
         {
-          "expr": "drc_v2_operator_cluster_status{status=\"updated\"}",
+          "expr": "gravity_operator_cluster_status{status=\"updated\"}",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "updated",
@@ -185,7 +185,7 @@
         "executionErrorState": "alerting",
         "frequency": "60s",
         "handler": 1,
-        "name": "DRC 2.0 Unavailable Pipeline",
+        "name": "Gravity 2.0 Unavailable Pipeline",
         "noDataState": "no_data",
         "notifications": [
           {
@@ -233,7 +233,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "drc_v2_operator_pipeline_unavailable",
+          "expr": "gravity_operator_pipeline_unavailable",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "{{ pipeline}}",
@@ -327,14 +327,14 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "increase(drc_v2_operator_sync_counter{controller=\"cluster\", result=\"success\"}[1m])",
+          "expr": "increase(gravity_operator_sync_counter{controller=\"cluster\", result=\"success\"}[1m])",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "cluster",
           "refId": "A"
         },
         {
-          "expr": "increase(drc_v2_operator_sync_counter{controller=\"pipeline\", result=\"success\"}[1m])",
+          "expr": "increase(gravity_operator_sync_counter{controller=\"pipeline\", result=\"success\"}[1m])",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "{{pipeline}}",
@@ -420,14 +420,14 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "increase(drc_v2_operator_sync_counter{controller=\"cluster\", result=\"error\"}[5m])",
+          "expr": "increase(gravity_operator_sync_counter{controller=\"cluster\", result=\"error\"}[5m])",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "cluster",
           "refId": "A"
         },
         {
-          "expr": "increase(drc_v2_operator_sync_counter{controller=\"pipeline\", result=\"error\"}[5m])",
+          "expr": "increase(gravity_operator_sync_counter{controller=\"pipeline\", result=\"error\"}[5m])",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "{{pipeline}}",
@@ -515,7 +515,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.80, sum(rate(drc_v2_operator_schedule_duration_seconds_bucket[1m])) by (le, pipeline))",
+          "expr": "histogram_quantile(0.80, sum(rate(gravity_operator_schedule_duration_seconds_bucket[1m])) by (le, pipeline))",
           "format": "time_series",
           "intervalFactor": 1,
           "legendFormat": "{{ pipeline}}",
@@ -600,7 +600,7 @@
     ]
   },
   "timezone": "",
-  "title": "DRC Operator",
+  "title": "Gravity Operator",
   "uid": "fVPIZ1Emz",
   "version": 4
 }
