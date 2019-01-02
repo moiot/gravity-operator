@@ -10,7 +10,7 @@ deploymentRules:
 operator:
   image:
     repository: moiot/gravity-operator
-    tag: latest
+    tag: v0.1.0
     pullPolicy: IfNotPresent
   rolling: "25%"
   service:
@@ -46,7 +46,7 @@ admin:
 gatekeeper:
   image:
     repository: moiot/gravity-gatekeeper
-    tag: latest
+    tag: v0.1.0
     pullPolicy: IfNotPresent
   resources: {}
   #    requests:
