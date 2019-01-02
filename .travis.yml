@@ -23,4 +23,4 @@ jobs:
         - docker build -t moiot/gravity-gatekeeper:${TRAVIS_TAG} -f Dockerfile.gatekeeper .
         - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
         - docker push moiot/gravity-operator:${TRAVIS_TAG}
-        - docker push moiot/gravity-gatekeeper:${TRAVIS_TAG}n
+        - docker push moiot/gravity-gatekeeper:${TRAVIS_TAG}
