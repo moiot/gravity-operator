@@ -143,7 +143,7 @@ func (tc *TestCase) Start(bootstrap bool) {
 func (tc *TestCase) run(bootstrap bool) {
 	defer tc.wg.Done()
 
-	tc.generator.SetupTestTables()
+	tc.generator.SetupTestTables(false)
 
 	if bootstrap {
 		start := time.Now()
@@ -284,6 +284,7 @@ func (tc *TestCase) pipelineConfig() config.PipelineConfigV2 {
 					"port":     targetDBConfig.Port,
 					"location": targetDBConfig.Location,
 				},
+				"enable-ddl": true,
 				"routes": []map[string]interface{}{
 					{
 						"match-schema": tc.fullName,
