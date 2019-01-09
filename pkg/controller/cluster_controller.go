@@ -354,6 +354,7 @@ func (cc *ClusterController) upgrade(c *clusterapi.Cluster, pipelines []*pipeapi
 				return errors.Annotatef(err, "[ClusterController] error update pipeline %s", p.Name)
 			}
 			cc.recorder.Eventf(c, corev1.EventTypeNormal, "Upgraded", "Upgraded pipeline %s to %s(%s)", p.Name, rule.Image, rule.Command)
+			cc.recorder.Eventf(p, corev1.EventTypeNormal, "Upgraded", "Upgraded pipeline %s to %s(%s)", p.Name, rule.Image, rule.Command)
 		}
 
 		if chosen == maxRolling {
