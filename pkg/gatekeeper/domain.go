@@ -17,15 +17,12 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/moiot/gravity-operator/pkg/apiserver"
-
-	"github.com/moiot/gravity/gravity/config"
-
-	"github.com/moiot/gravity/pkg/utils"
-
+	"github.com/moiot/gravity/pkg/config"
 	"github.com/moiot/gravity/pkg/mysql_test"
+	"github.com/moiot/gravity/pkg/utils"
 )
 
 var inconsistent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -250,7 +247,7 @@ func (tc *TestCase) createPipe() {
 	}
 }
 
-func (tc *TestCase) pipelineConfig() config.PipelineConfigV2 {
+func (tc *TestCase) pipelineConfig() config.PipelineConfigV3 {
 	sourceDBConfig := getConfigFromDB(tc.sourceDB)
 	targetDBConfig := getConfigFromDB(tc.targetDB)
 	// create pipeline
@@ -260,10 +257,13 @@ func (tc *TestCase) pipelineConfig() config.PipelineConfigV2 {
 			"table":  "*",
 		},
 	}
-	return config.PipelineConfigV2{
+	return config.PipelineConfigV3{
 		PipelineName: tc.fullName,
-		InputPlugins: map[string]interface{}{
-			"mysql": map[string]interface{}{
+		Version:      config.PipelineConfigV3Version,
+		InputPlugin: config.InputConfig{
+			Type: "mysql",
+			Mode: config.Replication,
+			Config: map[string]interface{}{
 				"source": map[string]interface{}{
 					"host":     sourceDBConfig.Host,
 					"username": sourceDBConfig.Username,
@@ -272,11 +272,11 @@ func (tc *TestCase) pipelineConfig() config.PipelineConfigV2 {
 					"location": sourceDBConfig.Location,
 				},
 				"table-configs": tableConfigs,
-				"mode":          "replication",
 			},
 		},
-		OutputPlugins: map[string]interface{}{
-			"mysql": map[string]interface{}{
+		OutputPlugin: config.GenericConfig{
+			Type: "mysql",
+			Config: map[string]interface{}{
 				"target": map[string]interface{}{
 					"host":     targetDBConfig.Host,
 					"username": targetDBConfig.Username,

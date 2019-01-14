@@ -43,7 +43,7 @@ The default rule is as follows:
 ```yaml
   - group: "default"
     pipelines: ["*"]
-    image: "moiot/gravity:v0.9.2"
+    image: "moiot/gravity:v0.9.10"
     command: ["/gravity", "-config=/etc/gravity/config.json"]
 ```
 
