@@ -4,7 +4,7 @@ fullnameOverride: ""
 deploymentRules:
   - group: "default"
     pipelines: ["*"]
-    image: "moiot/gravity:v0.9.5"
+    image: "moiot/gravity:v0.9.10"
     command: ["/gravity", "-config=/etc/gravity/config.json"]
 
 operator:

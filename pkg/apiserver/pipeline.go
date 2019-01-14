@@ -4,16 +4,13 @@ import (
 	"encoding/json"
 
 	"github.com/juju/errors"
-
-	"github.com/moiot/gravity/gravity/config"
-
-	"github.com/moiot/gravity/gravity"
-	"github.com/moiot/gravity/pkg/core"
-
-	api "github.com/moiot/gravity-operator/pkg/apis/pipeline/v1alpha1"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	api "github.com/moiot/gravity-operator/pkg/apis/pipeline/v1alpha1"
+	"github.com/moiot/gravity/pkg/app"
+	"github.com/moiot/gravity/pkg/config"
+	"github.com/moiot/gravity/pkg/core"
 )
 
 type ApiPipeline struct {
@@ -67,7 +64,7 @@ func (apiPipeline *ApiPipeline) newConfigMap(pipeline *api.Pipeline) *corev1.Con
 }
 
 type ConfigWrapper struct {
-	Version         string          `yaml:"version" toml:"version" json:"version"`
+	Version string `yaml:"version" toml:"version" json:"version"`
 }
 
 func (apiPipeline *ApiPipeline) validate() error {
@@ -87,7 +84,7 @@ func (apiPipeline *ApiPipeline) validate() error {
 		}
 
 		cfgV3.PipelineName = apiPipeline.Name
-		_, err  = gravity.Parse(*cfgV3)
+		_, err = app.Parse(*cfgV3)
 		if err != nil {
 			return errors.Annotatef(err, "error parse gravity cfg: %s. %#v.", err, cfgV3)
 		}
@@ -98,9 +95,8 @@ func (apiPipeline *ApiPipeline) validate() error {
 			return errors.Annotatef(err, "error unmarshal gravity config v2: %s", string(*apiPipeline.Spec.Config))
 		}
 
-
 		cfgV2.PipelineName = apiPipeline.Name
-		_, err = gravity.Parse(cfgV2.ToV3())
+		_, err = app.Parse(cfgV2.ToV3())
 		if err != nil {
 			return errors.Annotatef(err, "error parse gravity cfg: %s. %#v.", err, cfgV3)
 		}
@@ -109,7 +105,6 @@ func (apiPipeline *ApiPipeline) validate() error {
 		cfgV3 = &v3
 		cfgV3.Version = config.PipelineConfigV3Version
 	}
-
 
 	updated, err := json.Marshal(cfgV3)
 	if err != nil {
