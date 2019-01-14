@@ -66,21 +66,54 @@ func (apiPipeline *ApiPipeline) newConfigMap(pipeline *api.Pipeline) *corev1.Con
 	}
 }
 
+type ConfigWrapper struct {
+	Version         string          `yaml:"version" toml:"version" json:"version"`
+}
+
 func (apiPipeline *ApiPipeline) validate() error {
-	var cfg = &config.PipelineConfigV2{}
-	err := json.Unmarshal(*apiPipeline.Spec.Config, cfg)
+	// Use ConfigWrapper to detect the config version
+	var cfgWrapper = &ConfigWrapper{}
+	err := json.Unmarshal(*apiPipeline.Spec.Config, &cfgWrapper)
 	if err != nil {
-		return errors.Annotatef(err, "error unmarshal gravity cfg %s", string(*apiPipeline.Spec.Config))
-	}
-	cfg.PipelineName = apiPipeline.Name
-	_, err = gravity.Parse(cfg)
-	if err != nil {
-		return errors.Annotatef(err, "error parse gravity cfg: %s. %#v.", err, cfg)
+		return errors.Annotatef(err, "error unmarshal gravity cfg wrapper %s", string(*apiPipeline.Spec.Config))
 	}
 
-	updated, err := json.Marshal(cfg)
+	var cfgV3 *config.PipelineConfigV3
+	if cfgWrapper.Version == config.PipelineConfigV3Version {
+		cfgV3 = &config.PipelineConfigV3{}
+		err := json.Unmarshal(*apiPipeline.Spec.Config, cfgV3)
+		if err != nil {
+			return errors.Annotatef(err, "error unmarshal gravity config v3: %s", string(*apiPipeline.Spec.Config))
+		}
+
+		cfgV3.PipelineName = apiPipeline.Name
+		_, err  = gravity.Parse(*cfgV3)
+		if err != nil {
+			return errors.Annotatef(err, "error parse gravity cfg: %s. %#v.", err, cfgV3)
+		}
+	} else if cfgWrapper.Version == "" {
+		cfgV2 := &config.PipelineConfigV2{}
+		err := json.Unmarshal(*apiPipeline.Spec.Config, cfgV2)
+		if err != nil {
+			return errors.Annotatef(err, "error unmarshal gravity config v2: %s", string(*apiPipeline.Spec.Config))
+		}
+
+
+		cfgV2.PipelineName = apiPipeline.Name
+		_, err = gravity.Parse(cfgV2.ToV3())
+		if err != nil {
+			return errors.Annotatef(err, "error parse gravity cfg: %s. %#v.", err, cfgV3)
+		}
+
+		v3 := cfgV2.ToV3()
+		cfgV3 = &v3
+		cfgV3.Version = config.PipelineConfigV3Version
+	}
+
+
+	updated, err := json.Marshal(cfgV3)
 	if err != nil {
-		return errors.Annotatef(err, "error marshal cfg: %#v. err: %s", cfg, err)
+		return errors.Annotatef(err, "error marshal cfg: %#v. err: %s", cfgV3, err)
 	}
 	updatedRaw := json.RawMessage(updated)
 	apiPipeline.Spec.Config = &updatedRaw
