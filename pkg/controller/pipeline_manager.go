@@ -166,7 +166,8 @@ func (pm *PipelineManager) Run(threadiness int, stopCh <-chan struct{}) error {
 		go wait.Until(pm.runWorker, time.Second, stopCh)
 	}
 
-	// Check things every 10 seconds
+	// Add a worker here to actively check for scheduledPause configuration in Spec.
+	// We want to pause the pipeline fast.
 	go wait.Until(pm.scheduledPauseWorker, 10 * time.Second, stopCh)
 
 	log.Info("[PipelineManager.Run] Started workers")
@@ -201,18 +202,10 @@ func (pm *PipelineManager) scheduledPauseWorker() {
 			continue
 		}
 
-
-		// If the pipeline is in scheduled pause periods, then set the replica to 0;
-		// If the pipeline is not in scheduled pause period, and it is not Paused in spec,
-		// we should resume it by set the replica to 1
-		if pipeline.Spec.IsInScheduledPausePeriods() && (*deployment.Spec.Replicas == 1){
+		if pipeline.Spec.IsInScheduledPausePeriods() && (*deployment.Spec.Replicas == 1) {
 			pm.enqueuePipeline(pipeline)
 			pm.recorder.Event(pipeline, corev1.EventTypeNormal, "ScheduledPausePeriods takes effect", "Try pause the pipeline with 0 replica")
-		} else if !pipeline.Spec.Paused && (*deployment.Spec.Replicas != 1){
-			pm.enqueuePipeline(pipeline)
-			pm.recorder.Event(pipeline, corev1.EventTypeNormal, "ScheduledPausePeriods expires", "Try Resume Pipeline with 1 replica")
 		}
-
 	}
 }
 
