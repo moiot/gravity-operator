@@ -30,29 +30,49 @@ type Pipeline struct {
 }
 
 type ScheduledPausePeriod struct {
-	// StartTime, EndTime conforms to the format at here:
-	// https://godoc.org/github.com/robfig/cron
-	StartTime string `json:"start-time"`
-	EndTime string `json:"end-time"`
-	Location string `json:"location"`
+	// StartClock, EndClock is defined as the hour, minutes, seconds within 24 hours, for example:
+	//
+	// 02:00:00+08:00
+	// 20:00:00+08:00
+	//
+	//
+	// If EndClock is "less than" the StartClock, then StartClock should be
+	// the day before the EndClock
+	//
+	// StartClock: 20:00:00+08:00
+	// EndClock:   01:00:00+08:00
+	//
+	StartClock string `json:"start-clock"`
+	EndClock   string `json:"end-clock"`
+}
+
+func addDateToClock(s string, year, month, date int) string {
+	return fmt.Sprintf("%d-%02d-%02dT%s", year, month, date, s)
+}
+
+func validateClock(s string) (*time.Location, error) {
+	if t, err := time.Parse(time.RFC3339, addDateToClock(s, 2019,1, 1)); err != nil {
+		return nil, errors.Errorf("time should be in the format like '00:00:20+08:00'")
+	} else {
+		return t.Location(), nil
+	}
 }
 
 func (period ScheduledPausePeriod) Validate() error {
-	if period.Location == "" {
-		return errors.Errorf("empty location in schedule pause period")
-	}
-
-	if _, err := time.LoadLocation(period.Location); err != nil {
+	startLoc, err := validateClock(period.StartClock)
+	if err != nil {
 		return err
 	}
 
-	if _, err := cronParser.Parse(period.StartTime); err != nil {
+	endLoc, err := validateClock(period.EndClock)
+	if err != nil {
 		return err
 	}
 
-	if _, err := cronParser.Parse(period.EndTime); err != nil {
-		return err
+	if startLoc.String() != endLoc.String() {
+		return errors.Errorf("StartClock should have the same Timezone with EndClock")
 	}
+
 	return nil
 }
 
@@ -74,38 +94,37 @@ func (spec PipelineSpec) Validate() error {
 	return nil
 }
 
-func StartOfTheDay(t time.Time) time.Time {
-	year, month, day := t.Date()
-	return time.Date(year, month, day, 0, 0, 0, 0, t.Location())
-}
 
 func IsInScheduledPausePeriod(period ScheduledPausePeriod, currentTime time.Time) bool {
-	if period.Location == "" {
-		panic("invalid location")
-	}
-
-	location, err := time.LoadLocation(period.Location)
+	// Use a random year, month, date to get the location in Spec
+	startTS := addDateToClock(period.StartClock, 2019, 1, 1)
+	startTime, err := time.Parse(time.RFC3339, startTS)
 	if err != nil {
-		panic("invalid location in ScheduledPausePeriod")
+		panic(fmt.Sprintf("invalid StartClock: %v", err))
 	}
-	currentTimeWithLocation := currentTime.In(location)
+	loc := startTime.Location()
 
-	startSchedule, err := cronParser.Parse(period.StartTime)
+
+	// calculate the current range
+	currentTimeInSpecLocation := currentTime.In(loc)
+	year, month, date := currentTimeInSpecLocation.Date()
+	realStartTS := addDateToClock(period.StartClock, year, int(month), date)
+	startTime, err = time.Parse(time.RFC3339, realStartTS)
 	if err != nil {
-		panic(fmt.Sprintf("scheduledPausePeriod start time not valid: startTime: %s, err: %v", period.StartTime, err))
+		panic(fmt.Sprintf("invalid StartClock"))
 	}
 
-	endSchedule, err := cronParser.Parse(period.EndTime)
+	realEndTS := addDateToClock(period.EndClock, year, int(month), date)
+	endTime, err := time.Parse(time.RFC3339, realEndTS)
 	if err != nil {
-		panic("scheduledPausePeriod end time not valid")
+		panic(fmt.Sprintf("invalid EncClock"))
 	}
 
-	t := StartOfTheDay(currentTimeWithLocation)
+	if endTime.Before(startTime) {
+		startTime = startTime.AddDate(0, 0, -1)
+	}
 
-	minTime := startSchedule.Next(t)
-	maxTime := endSchedule.Next(t)
-
-	return minTime.Before(currentTimeWithLocation) && maxTime.After(currentTimeWithLocation)
+	return startTime.Before(currentTime) && endTime.After(currentTime)
 }
 
 func (spec PipelineSpec) IsInScheduledPausePeriods() bool {
