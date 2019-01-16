@@ -64,6 +64,9 @@ func (apiPipeline *ApiPipeline) newConfigMap(pipeline *api.Pipeline) *corev1.Con
 }
 
 func (apiPipeline *ApiPipeline) validate() error {
+	if err := apiPipeline.Spec.Validate(); err != nil {
+		return errors.Annotatef(err, "invalid spec: %s", err.Error())
+	}
 
 	cfgV3 := &config.PipelineConfigV3{}
 	err := json.Unmarshal(*apiPipeline.Spec.Config, cfgV3)

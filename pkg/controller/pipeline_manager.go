@@ -52,6 +52,10 @@ const (
 	// to sync due to a ConfigMap of the same name already existing.
 	ErrSyncFailed = "ErrSyncFailed"
 
+	ErrScheduledPauseFailed = "ScheduledPauseFailed"
+
+	ErrScheduledResumeFailed = "ScheduledResumeFailed"
+
 	// MessageResourceExists is the message used for Events when a resource
 	// fails to sync due to a Deployment already existing
 	MessageResourceExists = "ConfigMap %s already exists and is not managed by Pipeline"
@@ -59,6 +63,10 @@ const (
 	// MessageResourceSynced is the message used for an Event fired when a Pipeline
 	// is synced successfully
 	MessageSyncFailed = "Pipeline sync failed, err: %s"
+
+	MessageScheduledPauseFailed = "Scheduled pause failed, err: %s"
+
+	MessageScheduledResumeFailed = "Scheduled resume failed, err: %s"
 )
 
 type PipelineManager struct {
@@ -165,6 +173,9 @@ func (pm *PipelineManager) Run(threadiness int, stopCh <-chan struct{}) error {
 		go wait.Until(pm.runWorker, time.Second, stopCh)
 	}
 
+	// Check things every 10 seconds
+	go wait.Until(pm.scheduledPauseWorker, 10 * time.Second, stopCh)
+
 	log.Info("[PipelineManager.Run] Started workers")
 	return nil
 }
@@ -174,6 +185,41 @@ func (pm *PipelineManager) Run(threadiness int, stopCh <-chan struct{}) error {
 // workqueue.
 func (pm *PipelineManager) runWorker() {
 	for pm.processNextWorkItem() {
+	}
+}
+
+// scheduledPauseWorker lists all Deployments and change the replica according to
+// the ScheduledPausePeriods
+func (pm *PipelineManager) scheduledPauseWorker() {
+	pipelines, err := pm.pipelinesLister.Pipelines(pm.namespace).List(labels.Everything())
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("can't list Pipelines: %v", err))
+	}
+
+	for _, pipeline := range pipelines {
+		deployment, err := pm.deploymentLister.Deployments(pipeline.Namespace).Get(pipeline.Name)
+		if err != nil {
+			utilruntime.HandleError(fmt.Errorf("can't get Deployment %s, err: %v", pipeline.Name, err))
+			continue
+		}
+
+		if !metav1.IsControlledBy(deployment, pipeline) {
+			utilruntime.HandleError(fmt.Errorf("depoyment not controlled by pipeline"))
+			continue
+		}
+
+
+		// If the pipeline is in scheduled pause periods, then set the replica to 0;
+		// If the pipeline is not in scheduled pause period, and it is not Paused in spec,
+		// we should resume it by set the replica to 1
+		if pipeline.Spec.IsInScheduledPausePeriods() && (*deployment.Spec.Replicas == 1){
+			pm.enqueuePipeline(pipeline)
+			pm.recorder.Event(pipeline, corev1.EventTypeNormal, "ScheduledPausePeriods takes effect", "Try pause the pipeline with 0 replica")
+		} else if !pipeline.Spec.Paused && (*deployment.Spec.Replicas != 1){
+			pm.enqueuePipeline(pipeline)
+			pm.recorder.Event(pipeline, corev1.EventTypeNormal, "ScheduledPausePeriods expires", "Try Resume Pipeline with 1 replica")
+		}
+
 	}
 }
 
@@ -292,7 +338,7 @@ func (pm *PipelineManager) syncHandler(key string) error {
 	pipelineUnavailable.WithLabelValues(name).Set(float64(deployment.Status.UnavailableReplicas))
 
 	var expectedReplica int32 = 1
-	if pipeline.Spec.Paused {
+	if pipeline.Spec.Paused || pipeline.Spec.IsInScheduledPausePeriods() {
 		expectedReplica = 0
 	}
 	if *deployment.Spec.Replicas != expectedReplica {
@@ -419,7 +465,7 @@ func (pm *PipelineManager) newDeployment(pipeline *api.Pipeline) *appsv1.Deploym
 		},
 	}
 
-	if pipeline.Spec.Paused {
+	if pipeline.Spec.Paused || pipeline.Spec.IsInScheduledPausePeriods() {
 		deployment.Spec.Replicas = int32Ptr(0)
 	} else {
 		deployment.Spec.Replicas = int32Ptr(1)
@@ -450,12 +496,15 @@ func (pm *PipelineManager) updatePipelineStatus(origin *api.Pipeline, deployment
 	}
 	if deployment.Status.AvailableReplicas < 1 {
 		runningCond.Status = corev1.ConditionFalse
-		if !pipeline.Spec.Paused {
-			runningCond.Reason = "PipelineUnavailable"
-			runningCond.Message = "Pipeline has no available deployment"
-		} else {
+		if pipeline.Spec.Paused {
 			runningCond.Reason = "PipelinePaused"
 			runningCond.Message = "Pipeline paused"
+		} else if pipeline.Spec.IsInScheduledPausePeriods() {
+			runningCond.Reason = "PipelinePaused"
+			runningCond.Message = "In ScheduledPausePeriods"
+		} else {
+			runningCond.Reason = "PipelineUnavailable"
+			runningCond.Message = "Pipeline has no available deployment"
 		}
 	} else {
 		runningCond.Status = corev1.ConditionTrue
