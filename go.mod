@@ -42,7 +42,6 @@ require (
 	github.com/pingcap/tipb v0.0.0-20181126132056-a7fd2aaa9719 // indirect
 	github.com/prometheus/client_golang v0.9.2
 	github.com/rcrowley/go-metrics v0.0.0-20181016184325-3113b8401b8a // indirect
-	github.com/robfig/cron v0.0.0-20180505203441-b41be1df6967
 	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/serialx/hashring v0.0.0-20180504054112-49a4782e9908 // indirect
 	github.com/shopspring/decimal v0.0.0-20180709203117-cd690d0c9e24 // indirect

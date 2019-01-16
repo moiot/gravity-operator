@@ -3,7 +3,6 @@ package v1alpha1
 import (
 	"fmt"
 	"github.com/juju/errors"
-	"github.com/robfig/cron"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"time"
@@ -12,9 +11,6 @@ import (
 const (
 	ConfigFileKey = "config.json"
 )
-
-// Standard parser without descriptors
-var cronParser = cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.DowOptional | cron.Descriptor)
 
 
 // +genclient
