@@ -104,6 +104,7 @@ func IsInScheduledPausePeriod(period ScheduledPausePeriod, currentTime time.Time
 	// calculate the current range
 	currentTimeInSpecLocation := currentTime.In(loc)
 	year, month, date := currentTimeInSpecLocation.Date()
+
 	realStartTS := addDateToClock(period.StartClock, year, int(month), date)
 	startTime, err = time.Parse(time.RFC3339, realStartTS)
 	if err != nil {
