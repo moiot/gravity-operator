@@ -52,10 +52,6 @@ const (
 	// to sync due to a ConfigMap of the same name already existing.
 	ErrSyncFailed = "ErrSyncFailed"
 
-	ErrScheduledPauseFailed = "ScheduledPauseFailed"
-
-	ErrScheduledResumeFailed = "ScheduledResumeFailed"
-
 	// MessageResourceExists is the message used for Events when a resource
 	// fails to sync due to a Deployment already existing
 	MessageResourceExists = "ConfigMap %s already exists and is not managed by Pipeline"
@@ -64,9 +60,6 @@ const (
 	// is synced successfully
 	MessageSyncFailed = "Pipeline sync failed, err: %s"
 
-	MessageScheduledPauseFailed = "Scheduled pause failed, err: %s"
-
-	MessageScheduledResumeFailed = "Scheduled resume failed, err: %s"
 )
 
 type PipelineManager struct {
