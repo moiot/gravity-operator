@@ -342,6 +342,7 @@ func (cc *ClusterController) upgrade(c *clusterapi.Cluster, pipelines []*pipeapi
 
 		if rule.Image == p.Spec.Image && reflect.DeepEqual(rule.Command, p.Spec.Command) &&
 			!p.Spec.Paused &&
+			!p.Spec.IsInScheduledPausePeriods() &&
 			(!p.Status.Available() || p.Status.Image != p.Spec.Image || !reflect.DeepEqual(p.Status.Command, p.Spec.Command)) {
 			log.Infof("[ClusterController.upgrade] pipeline %s is upgrading", p.Name)
 			chosen += 1
