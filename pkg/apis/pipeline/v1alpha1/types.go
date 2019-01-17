@@ -38,8 +38,8 @@ type ScheduledPausePeriod struct {
 	// StartClock: 20:00:00+08:00
 	// EndClock:   01:00:00+08:00
 	//
-	StartClock string `json:"start-clock"`
-	EndClock   string `json:"end-clock"`
+	StartClock string `json:"startClock"`
+	EndClock   string `json:"endClock"`
 }
 
 func addDateToClock(s string, year, month, date int) string {
@@ -76,7 +76,7 @@ func (period ScheduledPausePeriod) Validate() error {
 type PipelineSpec struct {
 	Task                  `json:",inline"`
 	Paused                bool                   `json:"paused"`
-	ScheduledPausePeriods []ScheduledPausePeriod `json:"scheduled-pause-periods"`
+	ScheduledPausePeriods []ScheduledPausePeriod `json:"pausePeriodsWithin24Hours"`
 	LastUpdate            metav1.Time            `json:"lastUpdate"`
 }
 
