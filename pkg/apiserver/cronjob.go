@@ -2,7 +2,6 @@ package apiserver
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/juju/errors"
 	pipeapi "github.com/moiot/gravity-operator/pkg/apis/pipeline/v1alpha1"
@@ -31,10 +30,8 @@ type ApiCronJob struct {
 }
 
 func (apiCronJob *ApiCronJob) Validate() error {
-
-	operatorEndPoint := os.Getenv("GRAVITY_APISERVER_URL")
-	if operatorEndPoint == "" {
-		return errors.Errorf("gravity api server is empty")
+	if err := ValidateOperatorEnv(); err != nil {
+		return err
 	}
 
 	if apiCronJob.PipelineName == "" {

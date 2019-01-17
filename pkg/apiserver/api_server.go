@@ -10,6 +10,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/juju/errors"
+
 	"github.com/moiot/gravity/pkg/utils/retry"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -52,6 +54,18 @@ func OperatorURI() string {
 	operatorHost := os.Getenv("GRAVITY_OPERATOR_SERVICE_HOST")
 	operatorPort := os.Getenv("GRAVITY_OPERATOR_SERVICE_PORT")
 	return fmt.Sprintf("http://%s:%s", operatorHost, operatorPort)
+}
+
+func ValidateOperatorEnv() error {
+	if os.Getenv("GRAVITY_OPERATOR_SERVICE_HOST") == "" {
+		return errors.Errorf("GRAVITY_OPERATOR_SERVICE_HOST is empty ")
+	}
+
+	if os.Getenv("GRAVITY_OPERATOR_SERVICE_PORT") == "" {
+		return errors.Errorf("GRAVITY_OPERATOR_SERVICE_PORT is empty")
+	}
+
+	return nil
 }
 
 type ApiServer struct {
