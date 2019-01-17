@@ -300,6 +300,12 @@ func (pm *PipelineManager) syncHandler(key string) error {
 		deployment, err = pm.kubeclientset.AppsV1().Deployments(pipeline.Namespace).Update(deployment)
 		if err != nil {
 			pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
+
+			// if the event is to pause and failed, we need to send alert
+			if expectedReplica == 0 {
+				pauseErrorCount.WithLabelValues(pipeline.Name).Add(1)
+			}
+
 			return errors.Trace(err)
 		}
 	}

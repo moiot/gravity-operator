@@ -31,11 +31,11 @@ import (
 )
 
 var (
-	pauseErrorCount = prometheus.NewCounterVec(prometheus.CounterOpts{
+	pauseErrorMsgCount = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "gravity",
 		Subsystem: "operator",
-		Name:      "pause_error_counter",
-		Help:      "Number of pause error",
+		Name:      "pause_msg_error_counter",
+		Help:      "Number of pause msg error",
 	}, []string{"pipeline"})
 
 	resumeErrorCount = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -47,7 +47,7 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(pauseErrorCount)
+	prometheus.MustRegister(pauseErrorMsgCount)
 }
 
 func OperatorURI() string {
@@ -270,7 +270,7 @@ func (s *ApiServer) pausePipe(c *gin.Context) {
 
 	err := s.updatePauseSpecWithRetry(name, true)
 	if err != nil {
-		pauseErrorCount.WithLabelValues(name).Add(1)
+		pauseErrorMsgCount.WithLabelValues(name).Add(1)
 		log.Errorf("[ApiServer.pausePipe] error cannot pause: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 		return
@@ -490,13 +490,13 @@ func (s *ApiServer) updateCronJob(c *gin.Context) {
 	var request ApiCronJob
 	if err := c.BindJSON(&request); err != nil {
 		log.Errorf("[ApiServer.updateCronJob] bind json error :v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	if err := request.Validate(); err != nil {
 		log.Errorf("[ApiServer.updateCronJob] bad parameter :v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -504,7 +504,7 @@ func (s *ApiServer) updateCronJob(c *gin.Context) {
 	job, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Get(jobName, metav1.GetOptions{})
 	if err != nil {
 		log.Errorf("[ApiServer.getCronJob] failed to get cronjob name: %v, err: %v", jobName, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -523,7 +523,7 @@ func (s *ApiServer) updateCronJob(c *gin.Context) {
 
 	if _, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Update(job); err != nil {
 		log.Errorf("[ApiServer.updateCronJob] failed name: %v, err: %v", jobName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 

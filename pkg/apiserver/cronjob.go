@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	ActionPause  = "pause-pipe"
-	ActionResume = "resume-pipe"
+	ActionPause  = "pause"
+	ActionResume = "resume"
 )
 
 type ApiCronJob struct {
@@ -46,7 +46,7 @@ func (apiCronJob *ApiCronJob) Validate() error {
 		return errors.Errorf("schedule config is empty")
 	}
 
-	if apiCronJob.Action != ActionPause && apiCronJob.Action != ActionResume {
+	if apiCronJob.Action != "pause" && apiCronJob.Action != ActionResume {
 		return errors.Errorf("action config is not valid")
 	}
 
@@ -97,7 +97,7 @@ func (apiCronJob *ApiCronJob) tok8(apiUrl string, pipeline *pipeapi.Pipeline, ac
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
-									Name:    action,
+									Name:    apiCronJob.CronJobName,
 									Command: command,
 									Image:   "byrnedo/alpine-curl",
 								},
