@@ -130,7 +130,7 @@ func NewApiServer(
 	router.PUT("/cronjobs/:name", apiServer.updateCronJob)
 	router.DELETE("/cronjobs/:name", apiServer.deleteCronJob)
 
-	router.GET("/pipeline/:pipelineName/cronjobs", apiServer.listPipelineCronJob)
+	router.GET("/pipeline/:name/cronjobs", apiServer.listPipelineCronJob)
 	return apiServer
 }
 
@@ -442,7 +442,7 @@ func (s *ApiServer) listCronJob(c *gin.Context) {
 }
 
 func (s *ApiServer) listPipelineCronJob(c *gin.Context) {
-	pipelineName := c.Param("pipelineName")
+	pipelineName := c.Param("name")
 
 	selector := labels.SelectorFromSet(map[string]string{"app.kubernetes.io/name": "gravity-cronjob", "pipeline": pipelineName})
 
