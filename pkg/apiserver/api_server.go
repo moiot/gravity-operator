@@ -409,7 +409,7 @@ func (s *ApiServer) createCronJob(c *gin.Context) {
 		return
 	}
 
-	jobSpec := request.tok8(OperatorURI(), pipeline, ActionPause)
+	jobSpec := request.tok8(OperatorURI(), pipeline, request.Action)
 	if _, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Create(jobSpec); err != nil {
 		log.Errorf("[ApiServer.createConJob] failed to create cronjob: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err})
@@ -508,18 +508,10 @@ func (s *ApiServer) updateCronJob(c *gin.Context) {
 		return
 	}
 
-	if request.Schedule != job.Spec.Schedule {
-		job.Annotations["action"] = request.Action
-		job.Spec.Schedule = request.Schedule
-	}
-
-	if request.Action != job.Annotations["action"] {
-		job.Annotations["action"] = request.Action
-		job.Spec.JobTemplate.Spec.Template.Spec.Containers[0].Command = containerCommand(request.Action, OperatorURI(), job.Labels["pipeline"])
-	}
-
-	job.Annotations["schedule"] = request.Schedule
+	job.Spec.Schedule = request.Schedule
+	job.Spec.JobTemplate.Spec.Template.Spec.Containers[0].Command = containerCommand(request.Action, OperatorURI(), job.Labels["pipeline"])
 	job.Annotations["action"] = request.Action
+	job.Annotations["schedule"] = request.Schedule
 
 	if _, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Update(job); err != nil {
 		log.Errorf("[ApiServer.updateCronJob] failed name: %v, err: %v", jobName, err)
