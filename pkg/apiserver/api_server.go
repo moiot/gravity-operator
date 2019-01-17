@@ -48,6 +48,12 @@ func init() {
 	prometheus.MustRegister(pauseErrorCount)
 }
 
+func OperatorURI() string {
+	operatorHost := os.Getenv("GRAVITY_OPERATOR_SERVICE_HOST")
+	operatorPort := os.Getenv("GRAVITY_OPERATOR_SERVICE_PORT")
+	return fmt.Sprintf("http://%s:%s", operatorHost, operatorPort)
+}
+
 type ApiServer struct {
 	srv           *http.Server
 	kubeclientset kubernetes.Interface
@@ -369,12 +375,6 @@ func (s *ApiServer) deletePipe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"msg": "deleted"})
 }
 
-func apiUrl() string {
-	operatorHost := os.Getenv("GRAVITY_OPERATOR_SERVICE_HOST")
-	operatorPort := os.Getenv("GRAVITY_OPERATOR_SERVICE_PORT")
-	return fmt.Sprintf("http://%s:%s", operatorHost, operatorPort)
-}
-
 func (s *ApiServer) createCronJob(c *gin.Context) {
 	var request ApiCronJob
 	if err := c.BindJSON(&request); err != nil {
@@ -395,7 +395,7 @@ func (s *ApiServer) createCronJob(c *gin.Context) {
 		return
 	}
 
-	jobSpec := request.tok8(apiUrl(), pipeline, ActionPause)
+	jobSpec := request.tok8(OperatorURI(), pipeline, ActionPause)
 	if _, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Create(jobSpec); err != nil {
 		log.Errorf("[ApiServer.createConJob] failed to create cronjob: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err})
@@ -406,9 +406,7 @@ func (s *ApiServer) createCronJob(c *gin.Context) {
 }
 
 func (s *ApiServer) listCronJob(c *gin.Context) {
-
-	selector := labels.Everything()
-
+	selector := labels.SelectorFromSet(map[string]string{"app.kubernetes.io/name": "gravity-cronjob"})
 	jobList, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).List(metav1.ListOptions{LabelSelector: selector.String()})
 	if err != nil {
 		log.Errorf("[ApiServer.listCronJob] failed to list cronjob: %v", err)
@@ -432,7 +430,7 @@ func (s *ApiServer) listCronJob(c *gin.Context) {
 func (s *ApiServer) listPipelineCronJob(c *gin.Context) {
 	pipelineName := c.Param("pipelineName")
 
-	selector := labels.SelectorFromSet(map[string]string{"pipeline": pipelineName})
+	selector := labels.SelectorFromSet(map[string]string{"app.kubernetes.io/name": "gravity-cronjob", "pipeline": pipelineName})
 
 	jobList, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).List(metav1.ListOptions{LabelSelector: selector.String()})
 	if err != nil {
@@ -482,6 +480,12 @@ func (s *ApiServer) updateCronJob(c *gin.Context) {
 		return
 	}
 
+	if err := request.Validate(); err != nil {
+		log.Errorf("[ApiServer.updateCronJob] bad parameter :v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		return
+	}
+
 	jobName := c.Param("name")
 	job, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Get(jobName, metav1.GetOptions{})
 	if err != nil {
@@ -497,7 +501,7 @@ func (s *ApiServer) updateCronJob(c *gin.Context) {
 
 	if request.Action != job.Annotations["action"] {
 		job.Annotations["action"] = request.Action
-		job.Spec.JobTemplate.Spec.Template.Spec.Containers[0].Command = containerCommand(request.Action, apiUrl(), job.Labels["pipeline"])
+		job.Spec.JobTemplate.Spec.Template.Spec.Containers[0].Command = containerCommand(request.Action, OperatorURI(), job.Labels["pipeline"])
 	}
 
 	job.Annotations["schedule"] = request.Schedule

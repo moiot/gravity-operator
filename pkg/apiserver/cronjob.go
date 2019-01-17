@@ -79,8 +79,9 @@ func (apiCronJob *ApiCronJob) tok8(apiUrl string, pipeline *pipeapi.Pipeline, ac
 		Name:      apiCronJob.CronJobName,
 		Namespace: pipeline.Namespace,
 		Labels: map[string]string{
-			"pipeline": pipeline.Name,
-			"action":   action,
+			"app.kubernetes.io/name": "gravity-cronjob",
+			"pipeline":               pipeline.Name,
+			"action":                 action,
 		},
 		Annotations: map[string]string{
 			"action":   apiCronJob.Action,
