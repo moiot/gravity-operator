@@ -275,7 +275,7 @@ func (s *ApiServer) resumePipe(c *gin.Context) {
 
 func (s *ApiServer) updatePauseSpecWithRetry(name string, expected bool) error {
 	// Ignore the error when pipeline cannot be found;
-	// retry 10 times for other cases
+	// retry 3 times for other cases
 	err := retry.Do(func() error {
 		pipeline, err := s.controller.GetK8Pipeline(s.namespace, name)
 		if err != nil {
