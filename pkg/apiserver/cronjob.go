@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	ActionPause  = "pausePipe"
-	ActionResume = "resumePipe"
+	ActionPause  = "pause-pipe"
+	ActionResume = "resume-pipe"
 )
 
 type ApiCronJob struct {
@@ -84,14 +84,7 @@ func (apiCronJob *ApiCronJob) tok8(apiUrl string, pipeline *pipeapi.Pipeline, ac
 			"action":   apiCronJob.Action,
 			"schedule": apiCronJob.Schedule,
 		},
-		OwnerReferences: []metav1.OwnerReference{
-			{
-				APIVersion: pipeline.APIVersion,
-				Kind:       pipeline.Kind,
-				Name:       pipeline.Name,
-				UID:        pipeline.UID,
-			},
-		},
+		OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(pipeline, pipeapi.SchemeGroupVersion.WithKind(pipeapi.PipelineResourceKind))},
 	}
 
 	return &v1beta1.CronJob{

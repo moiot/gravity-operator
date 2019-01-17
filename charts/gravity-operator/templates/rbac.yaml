@@ -12,6 +12,10 @@ rules:
   resources: ["deployments"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
+- apiGroups: ["batch"]
+  resources: ["cronjobs", "jobs"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
 - apiGroups: ["gravity.mobike.io"]
   resources: ["*"]
   verbs: ["*"]
