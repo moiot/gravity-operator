@@ -7,7 +7,12 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"net/url"
+	"os"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/moiot/gravity/pkg/utils/retry"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -15,6 +20,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 
 	clusterapi "github.com/moiot/gravity-operator/pkg/apis/cluster/v1alpha1"
@@ -22,6 +28,31 @@ import (
 	client "github.com/moiot/gravity-operator/pkg/client/pipeline/clientset/versioned"
 	"github.com/moiot/gravity-operator/pkg/controller"
 )
+
+var (
+	pauseErrorMsgCount = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gravity",
+		Subsystem: "operator",
+		Name:      "pause_msg_error_counter",
+		Help:      "Number of pause msg error",
+	}, []string{"pipeline"})
+
+	resumeErrorCount = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gravity",
+		Subsystem: "operator",
+		Name:      "resume_error_counter",
+		Help:      "Number of resume error",
+	}, []string{"pipeline"})
+)
+
+func init() {
+	prometheus.MustRegister(pauseErrorMsgCount)
+	prometheus.MustRegister(resumeErrorCount)
+}
+
+func OperatorURI() string {
+	return os.Getenv("MY_SERVICE_URI")
+}
 
 type ApiServer struct {
 	srv           *http.Server
@@ -76,7 +107,16 @@ func NewApiServer(
 	router.GET("/pipeline", apiServer.listPipe)
 	router.POST("/pipeline/:name/reset", apiServer.reset)
 	router.DELETE("/pipeline/:name", apiServer.deletePipe)
+	router.POST("/pipeline/:name/pause", apiServer.pausePipe)
+	router.POST("/pipeline/:name/resume", apiServer.resumePipe)
 
+	router.POST("/cronjobs", apiServer.createCronJob)
+	router.GET("/cronjobs", apiServer.listCronJob)
+	router.GET("/cronjobs/:name", apiServer.getCronJob)
+	router.PUT("/cronjobs/:name", apiServer.updateCronJob)
+	router.DELETE("/cronjobs/:name", apiServer.deleteCronJob)
+
+	router.GET("/pipeline/:name/cronjobs", apiServer.listPipelineCronJob)
 	return apiServer
 }
 
@@ -211,6 +251,52 @@ func (s *ApiServer) updatePipe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"msg": "update success"})
 }
 
+func (s *ApiServer) pausePipe(c *gin.Context) {
+	name := c.Param("name")
+
+	err := s.updatePauseSpecWithRetry(name, true)
+	if err != nil {
+		pauseErrorMsgCount.WithLabelValues(name).Add(1)
+		log.Errorf("[ApiServer.pausePipe] error cannot pause: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"msg": "pause msg sent"})
+}
+
+func (s *ApiServer) resumePipe(c *gin.Context) {
+	name := c.Param("name")
+	err := s.updatePauseSpecWithRetry(name, false)
+	if err != nil {
+		resumeErrorCount.WithLabelValues(name).Add(1)
+		log.Errorf("[ApiServer.pausePipe] error cannot resume: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"msg": "resume msg sent"})
+}
+
+func (s *ApiServer) updatePauseSpecWithRetry(name string, expected bool) error {
+	// Ignore the error when pipeline cannot be found;
+	// retry 6 times for other cases
+	err := retry.Do(func() error {
+		pipeline, err := s.controller.GetK8Pipeline(s.namespace, name)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			} else {
+				return err
+			}
+		}
+		pipeline.Spec.Paused = expected
+		_, err = s.pipeclientset.GravityV1alpha1().Pipelines(s.namespace).Update(pipeline)
+		return err
+	}, 6, 1)
+	return err
+}
+
 func (s *ApiServer) getPipe(c *gin.Context) {
 	name := c.Param("name")
 	pipeline, err := s.controller.GetK8Pipeline(s.namespace, name)
@@ -285,5 +371,151 @@ func (s *ApiServer) deletePipe(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 		return
 	}
+	c.JSON(http.StatusOK, gin.H{"msg": "deleted"})
+}
+
+func (s *ApiServer) createCronJob(c *gin.Context) {
+	var request ApiCronJob
+	if err := c.BindJSON(&request); err != nil {
+		log.Errorf("[ApiServer.createCronJob] bind json error :v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		return
+	}
+
+	if err := request.Validate(); err != nil {
+		log.Errorf("[ApiServer.createCronJob] error: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+	}
+
+	pipeline, err := s.controller.GetK8Pipeline(s.namespace, request.PipelineName)
+	if err != nil {
+		log.Errorf("[ApiServer.createCronJob] failed to get pipeline: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		return
+	}
+
+	jobSpec := request.tok8(OperatorURI(), pipeline, request.Action)
+	if _, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Create(jobSpec); err != nil {
+		log.Errorf("[ApiServer.createConJob] failed to create cronjob: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"msg": "created"})
+}
+
+func (s *ApiServer) listCronJob(c *gin.Context) {
+	selector := labels.SelectorFromSet(map[string]string{"app.kubernetes.io/name": "gravity-cronjob"})
+	jobList, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).List(metav1.ListOptions{LabelSelector: selector.String()})
+	if err != nil {
+		log.Errorf("[ApiServer.listCronJob] failed to list cronjob: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		return
+	}
+
+	apiCronJobList := make([]ApiCronJob, len(jobList.Items))
+	for i, job := range jobList.Items {
+		apiCronJobList[i] = ApiCronJob{
+			CronJobName:  job.Name,
+			PipelineName: job.Labels["pipeline"],
+			Schedule:     job.Annotations["schedule"],
+			Action:       job.Annotations["action"],
+		}
+	}
+
+	c.JSON(http.StatusOK, apiCronJobList)
+}
+
+func (s *ApiServer) listPipelineCronJob(c *gin.Context) {
+	pipelineName := c.Param("name")
+
+	selector := labels.SelectorFromSet(map[string]string{"app.kubernetes.io/name": "gravity-cronjob", "pipeline": pipelineName})
+
+	jobList, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).List(metav1.ListOptions{LabelSelector: selector.String()})
+	if err != nil {
+		log.Errorf("[ApiServer.listCronJob] failed to list cronjob: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		return
+	}
+
+	apiCronJobList := make([]ApiCronJob, len(jobList.Items))
+	for i, job := range jobList.Items {
+		apiCronJobList[i] = ApiCronJob{
+			CronJobName:  job.Name,
+			PipelineName: job.Labels["pipeline"],
+			Schedule:     job.Annotations["schedule"],
+			Action:       job.Annotations["action"],
+		}
+	}
+
+	c.JSON(http.StatusOK, apiCronJobList)
+}
+
+func (s *ApiServer) getCronJob(c *gin.Context) {
+	jobName := c.Param("name")
+
+	job, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Get(jobName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("[ApiServer.getCronJob] failed to get cronjob name: %v, err: %v", jobName, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		return
+	}
+
+	c.JSON(
+		http.StatusOK,
+		ApiCronJob{
+			CronJobName:  jobName,
+			PipelineName: job.Labels["pipeline"],
+			Schedule:     job.Annotations["schedule"],
+			Action:       job.Annotations["action"],
+		})
+}
+
+func (s *ApiServer) updateCronJob(c *gin.Context) {
+	var request ApiCronJob
+	if err := c.BindJSON(&request); err != nil {
+		log.Errorf("[ApiServer.updateCronJob] bind json error :v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := request.Validate(); err != nil {
+		log.Errorf("[ApiServer.updateCronJob] bad parameter :v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	jobName := c.Param("name")
+	job, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Get(jobName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("[ApiServer.getCronJob] failed to get cronjob name: %v, err: %v", jobName, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	job.Spec.Schedule = request.Schedule
+	job.Spec.JobTemplate.Spec.Template.Spec.Containers[0].Command = containerCommand(request.Action, OperatorURI(), job.Labels["pipeline"])
+	job.Annotations["action"] = request.Action
+	job.Annotations["schedule"] = request.Schedule
+
+	if _, err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Update(job); err != nil {
+		log.Errorf("[ApiServer.updateCronJob] failed name: %v, err: %v", jobName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"msg": "updated"})
+}
+
+func (s *ApiServer) deleteCronJob(c *gin.Context) {
+	jobName := c.Param("name")
+
+	err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Delete(jobName, nil)
+	if err != nil {
+		log.Errorf("[ApiServer.deleteCronJob] failed to delete cronjob name: %v, err: %v", jobName, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{"msg": "deleted"})
 }

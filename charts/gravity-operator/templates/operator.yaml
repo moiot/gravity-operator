@@ -50,6 +50,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: MY_SERVICE_URI
+              value: http://{{ include "gravity-operator.fullname" . }}:{{ .Values.operator.service.port }}
+
           image: "{{ .Values.operator.image.repository }}:{{ .Values.operator.image.tag }}"
           command: ["/gravity-operator"]
           imagePullPolicy: {{ .Values.operator.image.pullPolicy }}
