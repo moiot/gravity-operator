@@ -10,10 +10,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/juju/errors"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/moiot/gravity/pkg/utils/retry"
-	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -21,7 +20,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	labels "k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 
 	clusterapi "github.com/moiot/gravity-operator/pkg/apis/cluster/v1alpha1"
@@ -48,24 +47,11 @@ var (
 
 func init() {
 	prometheus.MustRegister(pauseErrorMsgCount)
+	prometheus.MustRegister(resumeErrorCount)
 }
 
 func OperatorURI() string {
-	operatorHost := os.Getenv("GRAVITY_OPERATOR_SERVICE_HOST")
-	operatorPort := os.Getenv("GRAVITY_OPERATOR_SERVICE_PORT")
-	return fmt.Sprintf("http://%s:%s", operatorHost, operatorPort)
-}
-
-func ValidateOperatorEnv() error {
-	if os.Getenv("GRAVITY_OPERATOR_SERVICE_HOST") == "" {
-		return errors.Errorf("GRAVITY_OPERATOR_SERVICE_HOST is empty ")
-	}
-
-	if os.Getenv("GRAVITY_OPERATOR_SERVICE_PORT") == "" {
-		return errors.Errorf("GRAVITY_OPERATOR_SERVICE_PORT is empty")
-	}
-
-	return nil
+	return os.Getenv("MY_SERVICE_URI")
 }
 
 type ApiServer struct {
@@ -272,7 +258,7 @@ func (s *ApiServer) pausePipe(c *gin.Context) {
 	if err != nil {
 		pauseErrorMsgCount.WithLabelValues(name).Add(1)
 		log.Errorf("[ApiServer.pausePipe] error cannot pause: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -281,12 +267,11 @@ func (s *ApiServer) pausePipe(c *gin.Context) {
 
 func (s *ApiServer) resumePipe(c *gin.Context) {
 	name := c.Param("name")
-
 	err := s.updatePauseSpecWithRetry(name, false)
 	if err != nil {
 		resumeErrorCount.WithLabelValues(name).Add(1)
 		log.Errorf("[ApiServer.pausePipe] error cannot resume: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 

@@ -4,11 +4,12 @@ import (
 	"fmt"
 
 	"github.com/juju/errors"
-	pipeapi "github.com/moiot/gravity-operator/pkg/apis/pipeline/v1alpha1"
 	"k8s.io/api/batch/v1"
 	"k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	pipeapi "github.com/moiot/gravity-operator/pkg/apis/pipeline/v1alpha1"
 )
 
 const (
@@ -30,10 +31,6 @@ type ApiCronJob struct {
 }
 
 func (apiCronJob *ApiCronJob) Validate() error {
-	if err := ValidateOperatorEnv(); err != nil {
-		return err
-	}
-
 	if apiCronJob.PipelineName == "" {
 		return errors.Errorf("pipeline name is empty")
 	}
@@ -46,7 +43,7 @@ func (apiCronJob *ApiCronJob) Validate() error {
 		return errors.Errorf("schedule config is empty")
 	}
 
-	if apiCronJob.Action != "pause" && apiCronJob.Action != ActionResume {
+	if apiCronJob.Action != ActionPause && apiCronJob.Action != ActionResume {
 		return errors.Errorf("action config is not valid")
 	}
 

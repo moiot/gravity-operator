@@ -9,13 +9,6 @@ var syncCount = prometheus.NewCounterVec(prometheus.CounterOpts{
 	Help:      "Number of sync",
 }, []string{"pipeline", "controller", "result"})
 
-var pauseErrorCount = prometheus.NewCounterVec(prometheus.CounterOpts{
-	Namespace: "gravity",
-	Subsystem: "operator",
-	Name:      "pause_error_counter",
-	Help:      "Number of pause error",
-}, []string{"pipeline"})
-
 var scheduleHistogram = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 	Namespace: "gravity",
 	Subsystem: "operator",
@@ -40,7 +33,6 @@ var clusterStatus = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 
 func init() {
 	prometheus.MustRegister(syncCount)
-	prometheus.MustRegister(pauseErrorCount)
 	prometheus.MustRegister(scheduleHistogram)
 	prometheus.MustRegister(pipelineUnavailable)
 	prometheus.MustRegister(clusterStatus)
