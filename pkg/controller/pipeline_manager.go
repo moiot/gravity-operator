@@ -268,7 +268,10 @@ func (pm *PipelineManager) syncHandler(key string) error {
 	statefulSet, err := pm.statefulSetLister.StatefulSets(pipeline.Namespace).Get(pipeline.Name)
 	// If the resource doesn't exist, we'll create it
 	if apierrors.IsNotFound(err) {
-		pm.kubeclientset.CoreV1().Services(pipeline.Namespace).Create(pm.newHeadlessService(pipeline))
+		_, err = pm.kubeclientset.CoreV1().Services(pipeline.Namespace).Create(pm.newHeadlessService(pipeline))
+		if err != nil {
+			return errors.Annotatef(err, "error create headless service for new stateful set")
+		}
 		statefulSet, err = pm.kubeclientset.AppsV1().StatefulSets(pipeline.Namespace).Create(pm.newStatefulSet(pipeline))
 	}
 
