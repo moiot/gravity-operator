@@ -9,7 +9,7 @@ rules:
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
 - apiGroups: ["apps"]
-  resources: ["deployments"]
+  resources: ["statefulsets"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
 - apiGroups: ["batch"]

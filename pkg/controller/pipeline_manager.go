@@ -53,7 +53,7 @@ const (
 	ErrSyncFailed = "ErrSyncFailed"
 
 	// MessageResourceExists is the message used for Events when a resource
-	// fails to sync due to a Deployment already existing
+	// fails to sync due to a statefulSet already existing
 	MessageResourceExists = "ConfigMap %s already exists and is not managed by Pipeline"
 
 	// MessageResourceSynced is the message used for an Event fired when a Pipeline
@@ -67,8 +67,8 @@ type PipelineManager struct {
 	kubeclientset kubernetes.Interface
 	pipeclientset client.Interface
 
-	deploymentLister appslisters.DeploymentLister
-	deploymentSynced cache.InformerSynced
+	statefulSetLister appslisters.StatefulSetLister
+	statefulSetSynced cache.InformerSynced
 
 	podLister corelisters.PodLister
 	podSynced cache.InformerSynced
@@ -86,7 +86,7 @@ func newPipelineController(
 	namespace string,
 	kubeclientset kubernetes.Interface,
 	pipeclientset client.Interface,
-	deploymentInformer appsinformers.DeploymentInformer,
+	statefulSetInformer appsinformers.StatefulSetInformer,
 	podInformer coreinformers.PodInformer,
 	pipeLister listers.PipelineLister,
 	configMapLister corelisters.ConfigMapLister) *PipelineManager {
@@ -106,8 +106,8 @@ func newPipelineController(
 		kubeclientset: kubeclientset,
 		pipeclientset: pipeclientset,
 
-		deploymentLister: deploymentInformer.Lister(),
-		deploymentSynced: deploymentInformer.Informer().HasSynced,
+		statefulSetLister: statefulSetInformer.Lister(),
+		statefulSetSynced: statefulSetInformer.Informer().HasSynced,
 
 		podLister: podInformer.Lister(),
 		podSynced: podInformer.Informer().HasSynced,
@@ -120,13 +120,13 @@ func newPipelineController(
 		recorder:        recorder,
 	}
 
-	// Set up an event handler for when Deployment resources change. This
-	// handler will lookup the owner of the given Deployment, and if it is
+	// Set up an event handler for when statefulSet resources change. This
+	// handler will lookup the owner of the given statefulSet, and if it is
 	// owned by a Pipeline resource will enqueue that Pipeline resource for
 	// processing. This way, we don't need to implement custom logic for
-	// handling Deployment resources. More info on this pattern:
+	// handling statefulSet resources. More info on this pattern:
 	// https://github.com/kubernetes/community/blob/8cafef897a22026d42f5e5bb3f104febe7e29830/contributors/devel/controllers.md
-	deploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	statefulSetInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.handleObject,
 		UpdateFunc: func(old, new interface{}) {
 			// update position when re-sync
@@ -149,7 +149,7 @@ func (pm *PipelineManager) Run(threadiness int, stopCh <-chan struct{}) error {
 	// Wait for the caches to be synced before starting workers
 	log.Info("[PipelineManager.Run] Waiting for informer caches to sync")
 
-	if ok := cache.WaitForCacheSync(stopCh, pm.deploymentSynced, pm.podSynced); !ok {
+	if ok := cache.WaitForCacheSync(stopCh, pm.statefulSetSynced, pm.podSynced); !ok {
 		return fmt.Errorf("[PipelineManager.Run] failed to wait for caches to sync")
 	}
 
@@ -265,11 +265,11 @@ func (pm *PipelineManager) syncHandler(key string) error {
 		log.Warnf("[PipelineManager.syncHandler] pipeline %s: no image or command in spec, ignore.", pipeline.Name)
 	}
 
-	deployment, err := pm.deploymentLister.Deployments(pipeline.Namespace).Get(pipeline.Name)
+	statefulSet, err := pm.statefulSetLister.StatefulSets(pipeline.Namespace).Get(pipeline.Name)
 	// If the resource doesn't exist, we'll create it
 	if apierrors.IsNotFound(err) {
-		k8Deployment := pm.newDeployment(pipeline)
-		deployment, err = pm.kubeclientset.AppsV1().Deployments(pipeline.Namespace).Create(k8Deployment)
+		pm.kubeclientset.CoreV1().Services(pipeline.Namespace).Create(pm.newHeadlessService(pipeline))
+		statefulSet, err = pm.kubeclientset.AppsV1().StatefulSets(pipeline.Namespace).Create(pm.newStatefulSet(pipeline))
 	}
 
 	// If an error occurs during Get/Create, we'll requeue the item so we can
@@ -281,44 +281,44 @@ func (pm *PipelineManager) syncHandler(key string) error {
 		return errors.Trace(err)
 	}
 
-	// If the Deployment is not controlled by this Pipeline resource, we should log
+	// If the statefulSet is not controlled by this Pipeline resource, we should log
 	// a warning to the event recorder. No need to retry until pipeline updated
-	if !metav1.IsControlledBy(deployment, pipeline) {
-		msg := fmt.Sprintf(MessageResourceExists, deployment.Name)
+	if !metav1.IsControlledBy(statefulSet, pipeline) {
+		msg := fmt.Sprintf(MessageResourceExists, statefulSet.Name)
 		pm.recorder.Event(pipeline, corev1.EventTypeWarning, ErrResourceExists, msg)
 		return nil
 	}
 
-	pipelineUnavailable.WithLabelValues(name).Set(float64(deployment.Status.UnavailableReplicas))
+	pipelineUnavailable.WithLabelValues(name).Set(float64(statefulSet.Status.ReadyReplicas - statefulSet.Status.Replicas))
 
 	var expectedReplica int32 = 1
 	if pipeline.Spec.Paused {
 		expectedReplica = 0
 	}
-	if *deployment.Spec.Replicas != expectedReplica {
-		deployment.Spec.Replicas = &expectedReplica
-		deployment, err = pm.kubeclientset.AppsV1().Deployments(pipeline.Namespace).Update(deployment)
+	if *statefulSet.Spec.Replicas != expectedReplica {
+		statefulSet.Spec.Replicas = &expectedReplica
+		statefulSet, err = pm.kubeclientset.AppsV1().StatefulSets(pipeline.Namespace).Update(statefulSet)
 		if err != nil {
 			pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
 			return errors.Trace(err)
 		}
 	}
 
-	container := deployment.Spec.Template.Spec.Containers[0]
+	container := statefulSet.Spec.Template.Spec.Containers[0]
 	if container.Image != pipeline.Spec.Image || !reflect.DeepEqual(container.Command, pipeline.Spec.Command) {
-		deployment.Spec.Template.Spec.Containers[0].Image = pipeline.Spec.Image
-		deployment.Spec.Template.Spec.Containers[0].Command = pipeline.Spec.Command
-		deployment, err = pm.kubeclientset.AppsV1().Deployments(pipeline.Namespace).Update(deployment)
+		statefulSet.Spec.Template.Spec.Containers[0].Image = pipeline.Spec.Image
+		statefulSet.Spec.Template.Spec.Containers[0].Command = pipeline.Spec.Command
+		statefulSet, err = pm.kubeclientset.AppsV1().StatefulSets(pipeline.Namespace).Update(statefulSet)
 		if err != nil {
 			pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
 			return errors.Trace(err)
 		} else {
-			pm.recorder.Eventf(pipeline, corev1.EventTypeNormal, "Upgraded", "Upgraded deployment %s to %s:%s", deployment.Name,
+			pm.recorder.Eventf(pipeline, corev1.EventTypeNormal, "Upgraded", "Upgraded statefulSet %s to %s:%s", statefulSet.Name,
 				pipeline.Spec.Image, pipeline.Spec.Command)
 		}
 	}
 
-	pipeline, err = pm.updatePipelineStatus(pipeline, deployment)
+	pipeline, err = pm.updatePipelineStatus(pipeline, statefulSet)
 	if err != nil {
 		if pipeline != nil {
 			pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
@@ -339,13 +339,9 @@ func pipeLabels(pipeline *api.Pipeline) map[string]string {
 	}
 }
 
-// newDeployment creates a new Deployment for a task. It also sets
-// the appropriate OwnerReferences on the resource so handleObject can discover
-// the Pipeline resource that 'owns' it.
-func (pm *PipelineManager) newDeployment(pipeline *api.Pipeline) *appsv1.Deployment {
+func (pm *PipelineManager) newHeadlessService(pipeline *api.Pipeline) *corev1.Service {
 	lbls := pipeLabels(pipeline)
-
-	deployment := &appsv1.Deployment{
+	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pipeline.Name,
 			Namespace: pipeline.Namespace,
@@ -354,20 +350,49 @@ func (pm *PipelineManager) newDeployment(pipeline *api.Pipeline) *appsv1.Deploym
 			},
 			Labels: lbls,
 		},
-		Spec: appsv1.DeploymentSpec{
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name: "http",
+					Port: containerPort,
+				},
+			},
+			Selector:  lbls,
+			ClusterIP: "None",
+		},
+	}
+}
+
+// newStatefulSet creates a new statefulSet for a task. It also sets
+// the appropriate OwnerReferences on the resource so handleObject can discover
+// the Pipeline resource that 'owns' it.
+func (pm *PipelineManager) newStatefulSet(pipeline *api.Pipeline) *appsv1.StatefulSet {
+	lbls := pipeLabels(pipeline)
+
+	statefulSet := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pipeline.Name,
+			Namespace: pipeline.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(pipeline, api.SchemeGroupVersion.WithKind(api.PipelineResourceKind)),
+			},
+			Labels: lbls,
+		},
+		Spec: appsv1.StatefulSetSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: lbls,
 			},
-			Strategy: appsv1.DeploymentStrategy{
-				Type: appsv1.RecreateDeploymentStrategyType,
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+				Type: appsv1.RollingUpdateStatefulSetStrategyType,
 			},
-			MinReadySeconds: 10,
+			ServiceName: pipeline.Name,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: lbls,
 				},
 				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyAlways,
+					TerminationGracePeriodSeconds: int64Ptr(30),
+					RestartPolicy:                 corev1.RestartPolicyAlways,
 					Volumes: []corev1.Volume{
 						{
 							Name: "config",
@@ -420,14 +445,14 @@ func (pm *PipelineManager) newDeployment(pipeline *api.Pipeline) *appsv1.Deploym
 	}
 
 	if pipeline.Spec.Paused {
-		deployment.Spec.Replicas = int32Ptr(0)
+		statefulSet.Spec.Replicas = int32Ptr(0)
 	} else {
-		deployment.Spec.Replicas = int32Ptr(1)
+		statefulSet.Spec.Replicas = int32Ptr(1)
 	}
-	return deployment
+	return statefulSet
 }
 
-func (pm *PipelineManager) updatePipelineStatus(origin *api.Pipeline, deployment *appsv1.Deployment) (*api.Pipeline, error) {
+func (pm *PipelineManager) updatePipelineStatus(origin *api.Pipeline, statefulSet *appsv1.StatefulSet) (*api.Pipeline, error) {
 	// NEVER modify objects from the store. It's a read-only, local cache.
 	// You can use DeepCopy() to make a deep copy of original object and modify this copy
 	// Or create a copy manually for better performance
@@ -440,6 +465,9 @@ func (pm *PipelineManager) updatePipelineStatus(origin *api.Pipeline, deployment
 	}
 
 	for i := range pipeline.Status.Conditions {
+		if pipeline.Status.Conditions[i].Type == api.PipelineConditionIncremental {
+			pipeline.Status.Conditions[i].Type = api.PipelineConditionStream
+		}
 		status.Conditions = append(status.Conditions, pipeline.Status.Conditions[i])
 	}
 
@@ -448,19 +476,19 @@ func (pm *PipelineManager) updatePipelineStatus(origin *api.Pipeline, deployment
 		LastUpdateTime:     metav1.Now(),
 		LastTransitionTime: metav1.Now(),
 	}
-	if deployment.Status.AvailableReplicas < 1 {
+	if statefulSet.Status.ReadyReplicas < 1 {
 		runningCond.Status = corev1.ConditionFalse
 		if !pipeline.Spec.Paused {
-			runningCond.Reason = "PipelineUnavailable"
-			runningCond.Message = "Pipeline has no available deployment"
+			runningCond.Reason = "PipelineNotReady"
+			runningCond.Message = "Pipeline has no ready statefulSet"
 		} else {
 			runningCond.Reason = "PipelinePaused"
 			runningCond.Message = "Pipeline paused"
 		}
 	} else {
 		runningCond.Status = corev1.ConditionTrue
-		runningCond.Reason = "PipelineAvailable"
-		runningCond.Message = "Pipeline has available deployment"
+		runningCond.Reason = "PipelineReady"
+		runningCond.Message = "Pipeline has ready statefulSet"
 	}
 	setPipelineCondition(&status, runningCond)
 	if runningCond.Status == corev1.ConditionFalse {
@@ -472,17 +500,17 @@ func (pm *PipelineManager) updatePipelineStatus(origin *api.Pipeline, deployment
 		return pm.pipeclientset.GravityV1alpha1().Pipelines(pipeline.Namespace).UpdateStatus(pipeline)
 	}
 
-	selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
+	selector, err := metav1.LabelSelectorAsSelector(statefulSet.Spec.Selector)
 	if err != nil {
 		return nil, err
 	}
 	pods, err := pm.podLister.Pods(pipeline.Namespace).List(selector)
 	if err != nil {
-		return nil, errors.Annotatef(err, "fail to list pod by deployment %s", deployment.Name)
+		return nil, errors.Annotatef(err, "fail to list pod by statefulSet %s", statefulSet.Name)
 	}
 
 	if len(pods) != 1 {
-		return nil, errors.Errorf("expect 1 pod for deployment %s, actually %d", deployment.Name, len(pods))
+		return nil, errors.Errorf("expect 1 pod for statefulSet %s, actually %d", statefulSet.Name, len(pods))
 	}
 
 	pod := pods[0]
@@ -506,7 +534,7 @@ func (pm *PipelineManager) updatePipelineStatus(origin *api.Pipeline, deployment
 	}
 
 	stageCond := api.PipelineCondition{
-		Type:               api.PipelineConditionIncremental,
+		Type:               api.PipelineConditionStream,
 		LastUpdateTime:     metav1.Now(),
 		LastTransitionTime: metav1.Now(),
 	}
@@ -697,6 +725,7 @@ func (pm *PipelineManager) needSync(old *api.Pipeline, newP *api.Pipeline) bool 
 }
 
 func int32Ptr(i int32) *int32 { return &i }
+func int64Ptr(i int64) *int64 { return &i }
 
 func setPipelineCondition(status *api.PipelineStatus, condition api.PipelineCondition) {
 	curCond := status.Condition(condition.Type)

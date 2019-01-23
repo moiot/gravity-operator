@@ -32,7 +32,7 @@ Parameter | Description | Default Value
 `operator.image.tag`| Image tag of the operator | `v0.1.0`
 `operator.rolling`| The maximum number of pipelines that can be upgraded in parallel. Value can be an absolute number (ex: 5) or a percentage (ex: 10%). | `25%`
 `admin.image.repository`| Image of admin | `moiot/gravity-admin`
-`admin.image.tag`| Image tag of admin | `v0.1.0`
+`admin.image.tag`| Image tag of admin | `v0.2.0`
 `admin.service.nodePort`| Node port of the admin service | `30066`
 
 
@@ -43,7 +43,7 @@ The default rule is as follows:
 ```yaml
   - group: "default"
     pipelines: ["*"]
-    image: "moiot/gravity:v0.9.10"
+    image: "moiot/gravity:v0.9.15"
     command: ["/gravity", "-config=/etc/gravity/config.json"]
 ```
 
@@ -62,7 +62,7 @@ To upgrade a Gravity cluster, perform the following steps:
 2. Use [helm](https://helm.sh/) to upgrade the cluster.
 
 ## Architecture
-![Architecture](docs/k8s-160.png)
+![Architecture](docs/arch.png)
 
 ## License
 
