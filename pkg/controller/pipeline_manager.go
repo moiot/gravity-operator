@@ -5,6 +5,9 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/moiot/gravity/pkg/app"
+	"github.com/moiot/gravity/pkg/config"
+
 	log "github.com/sirupsen/logrus"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -681,6 +684,26 @@ func (pm *PipelineManager) handleObject(obj interface{}) {
 }
 
 func (pm *PipelineManager) Reset(pipeline *api.Pipeline) error {
+	if pipeline.Status.Available() {
+		return pm.resetRunning(pipeline)
+	} else {
+		return pm.resetPaused(pipeline)
+	}
+}
+
+func (pm *PipelineManager) needSync(old *api.Pipeline, newP *api.Pipeline) bool {
+	if !reflect.DeepEqual(newP.Status.Task, newP.Spec.Task) {
+		return true
+	}
+
+	if !reflect.DeepEqual(old.Spec, newP.Spec) {
+		return true
+	}
+
+	return false
+}
+
+func (pm *PipelineManager) resetRunning(pipeline *api.Pipeline) error {
 	pods, err := pm.podLister.Pods(pipeline.Namespace).List(labels.SelectorFromSet(pipeLabels(pipeline)))
 	if err != nil {
 		return errors.Annotatef(err, "fail to list pod for pipeline %s", pipeline.Name)
@@ -715,16 +738,23 @@ func (pm *PipelineManager) Reset(pipeline *api.Pipeline) error {
 	return nil
 }
 
-func (pm *PipelineManager) needSync(old *api.Pipeline, newP *api.Pipeline) bool {
-	if !reflect.DeepEqual(newP.Status.Task, newP.Spec.Task) {
-		return true
+func (pm *PipelineManager) resetPaused(pipeline *api.Pipeline) error {
+	cm, err := pm.kubeclientset.CoreV1().ConfigMaps(pipeline.Namespace).Get(pipeline.Name, metav1.GetOptions{})
+	if err != nil {
+		return errors.Annotatef(err, "[PipelineManager.resetPaused] can't get config map for %s", pipeline.Name)
 	}
 
-	if !reflect.DeepEqual(old.Spec, newP.Spec) {
-		return true
+	cfgV3 := config.PipelineConfigV3{}
+	err = json.Unmarshal([]byte(cm.Data[api.ConfigFileKey]), &cfgV3)
+	if err != nil {
+		return errors.Annotatef(err, "[PipelineManager.resetPaused] error unmarshal gravity config v3: %s", cm.Data[api.ConfigFileKey])
 	}
-
-	return false
+	server, err := app.NewServer(cfgV3)
+	if err != nil {
+		return errors.Annotatef(err, "[PipelineManager.resetPaused] error NewServer")
+	}
+	server.PositionStore.Clear()
+	return nil
 }
 
 func int32Ptr(i int32) *int32 { return &i }
