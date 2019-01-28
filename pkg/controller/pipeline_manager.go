@@ -259,6 +259,7 @@ func (pm *PipelineManager) syncHandler(key string) error {
 		// processing.
 		if apierrors.IsNotFound(err) {
 			utilruntime.HandleError(fmt.Errorf("pipeline '%s' in work queue no longer exists", key))
+			pipelineUnavailable.WithLabelValues(name).Set(0)
 			return nil
 		}
 		return errors.Trace(err)
