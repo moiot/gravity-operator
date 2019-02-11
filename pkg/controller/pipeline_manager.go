@@ -372,7 +372,7 @@ func (pm *PipelineManager) newHeadlessService(pipeline *api.Pipeline) *corev1.Se
 }
 
 func serviceName(pipeline *api.Pipeline) string {
-	return strings.Replace(pipeline.Name, ".", "_", -1)
+	return strings.Replace(pipeline.Name, ".", "-", -1)
 }
 
 // newStatefulSet creates a new statefulSet for a task. It also sets
