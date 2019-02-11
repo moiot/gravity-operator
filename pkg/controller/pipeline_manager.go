@@ -3,7 +3,6 @@ package controller
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/moiot/gravity/pkg/app"
@@ -351,7 +350,7 @@ func (pm *PipelineManager) newHeadlessService(pipeline *api.Pipeline) *corev1.Se
 	lbls := pipeLabels(pipeline)
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceName(pipeline),
+			Name:      pipeline.Name,
 			Namespace: pipeline.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(pipeline, api.SchemeGroupVersion.WithKind(api.PipelineResourceKind)),
@@ -369,10 +368,6 @@ func (pm *PipelineManager) newHeadlessService(pipeline *api.Pipeline) *corev1.Se
 			ClusterIP: "None",
 		},
 	}
-}
-
-func serviceName(pipeline *api.Pipeline) string {
-	return strings.Replace(pipeline.Name, ".", "-", -1)
 }
 
 // newStatefulSet creates a new statefulSet for a task. It also sets
@@ -397,7 +392,7 @@ func (pm *PipelineManager) newStatefulSet(pipeline *api.Pipeline) *appsv1.Statef
 			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
 				Type: appsv1.RollingUpdateStatefulSetStrategyType,
 			},
-			ServiceName: serviceName(pipeline),
+			ServiceName: pipeline.Name,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: lbls,

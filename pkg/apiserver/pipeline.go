@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"encoding/json"
+	"regexp"
 
 	"github.com/juju/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -63,8 +64,12 @@ func (apiPipeline *ApiPipeline) newConfigMap(pipeline *api.Pipeline) *corev1.Con
 	}
 }
 
-func (apiPipeline *ApiPipeline) validate() error {
+var nameReg = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
+func (apiPipeline *ApiPipeline) validate() error {
+	if !nameReg.Match([]byte(apiPipeline.Name)) {
+		return errors.Errorf("name must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name', or '123-abc')")
+	}
 	cfgV3 := &config.PipelineConfigV3{}
 	err := json.Unmarshal(*apiPipeline.Spec.Config, cfgV3)
 	if err != nil {
