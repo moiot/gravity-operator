@@ -182,7 +182,7 @@ func (s *ApiServer) createPipe(c *gin.Context) {
 	config := request.newConfigMap(pipeline)
 	_, err = s.kubeclientset.CoreV1().ConfigMaps(s.namespace).Create(config)
 	if err != nil {
-		s.pipeclientset.GravityV1alpha1().Pipelines(pipeline.Namespace).Delete(pipeline.Name, &metav1.DeleteOptions{})
+		_ = s.pipeclientset.GravityV1alpha1().Pipelines(pipeline.Namespace).Delete(pipeline.Name, &metav1.DeleteOptions{})
 		log.Errorf("[ApiServer.createPipe] error create config. %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 		return
