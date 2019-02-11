@@ -233,7 +233,7 @@ func (s *ApiServer) updatePipe(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": "pipeline has been updated. please retry. "})
 			return
 		}
-		log.Errorf("[ApiServer.updatePipe] error update %s. %v", newPipeline, err)
+		log.Errorf("[ApiServer.updatePipe] error update %v. %v", newPipeline, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 		return
 	}
@@ -377,7 +377,7 @@ func (s *ApiServer) deletePipe(c *gin.Context) {
 func (s *ApiServer) createCronJob(c *gin.Context) {
 	var request ApiCronJob
 	if err := c.BindJSON(&request); err != nil {
-		log.Errorf("[ApiServer.createCronJob] bind json error :v", err)
+		log.Errorf("[ApiServer.createCronJob] bind json error: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err})
 		return
 	}
@@ -474,13 +474,13 @@ func (s *ApiServer) getCronJob(c *gin.Context) {
 func (s *ApiServer) updateCronJob(c *gin.Context) {
 	var request ApiCronJob
 	if err := c.BindJSON(&request); err != nil {
-		log.Errorf("[ApiServer.updateCronJob] bind json error :v", err)
+		log.Errorf("[ApiServer.updateCronJob] bind json error: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	if err := request.Validate(); err != nil {
-		log.Errorf("[ApiServer.updateCronJob] bad parameter :v", err)
+		log.Errorf("[ApiServer.updateCronJob] bad parameter: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
