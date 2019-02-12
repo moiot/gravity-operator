@@ -373,7 +373,7 @@ func (cc *ClusterController) syncStatus(c *clusterapi.Cluster, pipelines []*pipe
 		status.Conditions = append(status.Conditions, c.Status.Conditions[i])
 	}
 
-	var updated, available int32
+	var updated, available, paused int32
 	for _, p := range pipelines {
 		rule := c.FindDeploymentRule(p.Name)
 		if rule == nil {
@@ -387,10 +387,14 @@ func (cc *ClusterController) syncStatus(c *clusterapi.Cluster, pipelines []*pipe
 		if p.Status.Available() {
 			available += 1
 		}
+
+		if p.Spec.Paused {
+			paused += 1
+		}
 	}
 	status.UpdatedPipelines = updated
 	status.AvailablePipelines = available
-	status.UnavailablePipelines = status.Pipelines - status.AvailablePipelines
+	status.UnavailablePipelines = status.Pipelines - status.AvailablePipelines - paused
 
 	cond := clusterapi.ClusterCondition{
 		Type:               clusterapi.ClusterAvailable,
