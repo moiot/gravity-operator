@@ -296,7 +296,7 @@ func (pm *PipelineManager) syncHandler(key string) error {
 		return nil
 	}
 
-	pipelineUnavailable.WithLabelValues(name).Set(float64(statefulSet.Status.ReadyReplicas - statefulSet.Status.Replicas))
+	pipelineUnavailable.WithLabelValues(name).Set(float64(statefulSet.Status.Replicas - statefulSet.Status.ReadyReplicas))
 
 	var expectedReplica int32 = 1
 	if pipeline.Spec.Paused {
