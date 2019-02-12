@@ -29,6 +29,15 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 data:
   gravity.conf: |
+    tcp_nopush          on;
+    tcp_nodelay         on;
+    types_hash_max_size 2048;
+
+    gzip on;
+    gzip_min_length 1024;
+    gzip_buffers 4 8k;
+    gzip_types text/plain application/x-javascript text/css application/xml application/json;
+
     server {
       listen       80;
       server_name  localhost;
