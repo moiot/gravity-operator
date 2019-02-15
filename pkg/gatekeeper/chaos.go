@@ -66,7 +66,7 @@ func (c *ChaosMonkey) run() {
 	selector := labels.SelectorFromSet(m)
 
 	podGvr := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
-	deploymentGvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+	statefulSetGvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
 
 	for {
 		select {
@@ -80,7 +80,7 @@ func (c *ChaosMonkey) run() {
 
 			gvr := podGvr
 			if rnd.Float32() < 0.3 {
-				gvr = deploymentGvr
+				gvr = statefulSetGvr
 			}
 
 			list, err := c.kube.Resource(gvr).Namespace(c.namespace).List(metav1.ListOptions{
