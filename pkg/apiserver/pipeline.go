@@ -9,7 +9,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	api "github.com/moiot/gravity-operator/pkg/apis/pipeline/v1alpha1"
-	"github.com/moiot/gravity/pkg/app"
 	"github.com/moiot/gravity/pkg/config"
 	"github.com/moiot/gravity/pkg/core"
 )
@@ -81,10 +80,10 @@ func (apiPipeline *ApiPipeline) validate() error {
 	}
 
 	cfgV3.PipelineName = apiPipeline.Name
-	_, err = app.Parse(*cfgV3)
-	if err != nil {
-		return errors.Annotatef(err, "error parse gravity cfg: %s. %#v.", err, cfgV3)
-	}
+	// _, err = app.Parse(*cfgV3)
+	// if err != nil {
+	// 	return errors.Annotatef(err, "error parse gravity cfg: %s. %#v.", err, cfgV3)
+	// }
 	updated, err := json.Marshal(cfgV3)
 	if err != nil {
 		return errors.Annotatef(err, "error marshal cfg: %#v. err: %s", cfgV3, err)
