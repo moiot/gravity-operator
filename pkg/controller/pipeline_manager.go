@@ -1,49 +1,44 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"reflect"
 	"time"
 
-	"github.com/moiot/gravity/pkg/app"
-	"github.com/moiot/gravity/pkg/config"
-
+	"github.com/juju/errors"
 	log "github.com/sirupsen/logrus"
-
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	appsinformers "k8s.io/client-go/informers/apps/v1"
+	batchinformers "k8s.io/client-go/informers/batch/v1"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	appslisters "k8s.io/client-go/listers/apps/v1"
+	batch "k8s.io/client-go/listers/batch/v1"
+	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 
-	"encoding/json"
-	"io/ioutil"
-	"net/http"
-
-	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-
-	appsinformers "k8s.io/client-go/informers/apps/v1"
-	coreinformers "k8s.io/client-go/informers/core/v1"
-
 	api "github.com/moiot/gravity-operator/pkg/apis/pipeline/v1alpha1"
 	client "github.com/moiot/gravity-operator/pkg/client/pipeline/clientset/versioned"
 	"github.com/moiot/gravity-operator/pkg/client/pipeline/clientset/versioned/scheme"
-	"github.com/moiot/gravity/pkg/core"
-
-	"github.com/juju/errors"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	appslisters "k8s.io/client-go/listers/apps/v1"
-	corelisters "k8s.io/client-go/listers/core/v1"
-
-	"k8s.io/apimachinery/pkg/labels"
-
 	listers "github.com/moiot/gravity-operator/pkg/client/pipeline/listers/pipeline/v1alpha1"
+	"github.com/moiot/gravity/pkg/app"
+	"github.com/moiot/gravity/pkg/config"
+	"github.com/moiot/gravity/pkg/core"
 )
 
 const (
@@ -73,6 +68,9 @@ type PipelineManager struct {
 	statefulSetLister appslisters.StatefulSetLister
 	statefulSetSynced cache.InformerSynced
 
+	jobLister batch.JobLister
+	jobSynced cache.InformerSynced
+
 	podLister corelisters.PodLister
 	podSynced cache.InformerSynced
 
@@ -90,6 +88,7 @@ func newPipelineController(
 	kubeclientset kubernetes.Interface,
 	pipeclientset client.Interface,
 	statefulSetInformer appsinformers.StatefulSetInformer,
+	jobInformer batchinformers.JobInformer,
 	podInformer coreinformers.PodInformer,
 	pipeLister listers.PipelineLister,
 	configMapLister corelisters.ConfigMapLister) *PipelineManager {
@@ -111,6 +110,9 @@ func newPipelineController(
 
 		statefulSetLister: statefulSetInformer.Lister(),
 		statefulSetSynced: statefulSetInformer.Informer().HasSynced,
+
+		jobLister: jobInformer.Lister(),
+		jobSynced: jobInformer.Informer().HasSynced,
 
 		podLister: podInformer.Lister(),
 		podSynced: podInformer.Informer().HasSynced,
@@ -138,6 +140,15 @@ func newPipelineController(
 		DeleteFunc: controller.handleObject,
 	})
 
+	jobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: controller.handleObject,
+		UpdateFunc: func(old, new interface{}) {
+			// update position when re-sync
+			controller.handleObject(new)
+		},
+		DeleteFunc: controller.handleObject,
+	})
+
 	return controller
 }
 
@@ -152,7 +163,7 @@ func (pm *PipelineManager) Run(threadiness int, stopCh <-chan struct{}) error {
 	// Wait for the caches to be synced before starting workers
 	log.Info("[PipelineManager.Run] Waiting for informer caches to sync")
 
-	if ok := cache.WaitForCacheSync(stopCh, pm.statefulSetSynced, pm.podSynced); !ok {
+	if ok := cache.WaitForCacheSync(stopCh, pm.statefulSetSynced, pm.jobSynced, pm.podSynced); !ok {
 		return fmt.Errorf("[PipelineManager.Run] failed to wait for caches to sync")
 	}
 
@@ -231,6 +242,15 @@ func (pm *PipelineManager) processNextWorkItem() bool {
 	return true
 }
 
+func syncMetrics(name string, start time.Time, err error) {
+	result := "success"
+	if err != nil {
+		result = "error"
+	}
+	syncCount.WithLabelValues(name, "pipeline", result).Add(1)
+	scheduleHistogram.WithLabelValues(name, "pipeline").Observe(time.Since(start).Seconds())
+}
+
 // syncHandler compares the actual state with the desired, and attempts to
 // converge the two. It then updates the Status block of the Pipeline resource
 // with the current status of the resource.
@@ -243,14 +263,7 @@ func (pm *PipelineManager) syncHandler(key string) error {
 	}
 
 	start := time.Now()
-	defer func() {
-		result := "success"
-		if err != nil {
-			result = "error"
-		}
-		syncCount.WithLabelValues(name, "pipeline", result).Add(1)
-		scheduleHistogram.WithLabelValues(name, "pipeline").Observe(time.Since(start).Seconds())
-	}()
+	defer syncMetrics(name, start, err)
 
 	// Get the pipeline resource with this namespace/name
 	pipeline, err := pm.pipelinesLister.Pipelines(namespace).Get(name)
@@ -264,9 +277,30 @@ func (pm *PipelineManager) syncHandler(key string) error {
 		}
 		return errors.Trace(err)
 	}
+	pipeline = pipeline.DeepCopy()
 
-	if pipeline.Spec.Image == "" || len(pipeline.Spec.Command) == 0 {
-		log.Warnf("[PipelineManager.syncHandler] pipeline %s: no image or command in spec, ignore.", pipeline.Name)
+	configMap, err := pm.configMapLister.ConfigMaps(pipeline.Namespace).Get(pipeline.Name)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	rawConfig := configMap.Data[api.ConfigFileKey]
+	cfg := &config.PipelineConfigV3{}
+	err = json.Unmarshal([]byte(rawConfig), cfg)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if cfg.InputPlugin.Mode != config.Batch {
+		return pm.syncNoneBatch(pipeline)
+	} else {
+		return pm.syncBatch(pipeline)
+	}
+}
+
+func (pm *PipelineManager) syncNoneBatch(pipeline *api.Pipeline) error {
+	err := pm.kubeclientset.BatchV1().Jobs(pipeline.Namespace).Delete(pipeline.Name, nil)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return errors.Trace(err)
 	}
 
 	statefulSet, err := pm.statefulSetLister.StatefulSets(pipeline.Namespace).Get(pipeline.Name)
@@ -283,11 +317,13 @@ func (pm *PipelineManager) syncHandler(key string) error {
 	// attempt processing again later. This could have been caused by a
 	// temporary network failure, or any other transient reason.
 	if err != nil {
-		pipelineUnavailable.WithLabelValues(name).Set(1)
+		pipelineUnavailable.WithLabelValues(pipeline.Name).Set(1)
 		pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
 		return errors.Trace(err)
 	}
 
+	originSpec := statefulSet.Spec
+	statefulSet = statefulSet.DeepCopy()
 	// If the statefulSet is not controlled by this Pipeline resource, we should log
 	// a warning to the event recorder. No need to retry until pipeline updated
 	if !metav1.IsControlledBy(statefulSet, pipeline) {
@@ -295,26 +331,19 @@ func (pm *PipelineManager) syncHandler(key string) error {
 		pm.recorder.Event(pipeline, corev1.EventTypeWarning, ErrResourceExists, msg)
 		return nil
 	}
-
-	pipelineUnavailable.WithLabelValues(name).Set(float64(statefulSet.Status.Replicas - statefulSet.Status.ReadyReplicas))
-
-	var expectedReplica int32 = 1
+	pipelineUnavailable.WithLabelValues(pipeline.Name).Set(float64(statefulSet.Status.Replicas - statefulSet.Status.ReadyReplicas))
 	if pipeline.Spec.Paused {
-		expectedReplica = 0
+		statefulSet.Spec.Replicas = int32Ptr(0)
+	} else {
+		statefulSet.Spec.Replicas = int32Ptr(1)
 	}
-	if *statefulSet.Spec.Replicas != expectedReplica {
-		statefulSet.Spec.Replicas = &expectedReplica
-		statefulSet, err = pm.kubeclientset.AppsV1().StatefulSets(pipeline.Namespace).Update(statefulSet)
-		if err != nil {
-			pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
-			return errors.Trace(err)
-		}
-	}
-
 	container := statefulSet.Spec.Template.Spec.Containers[0]
 	if container.Image != pipeline.Spec.Image || !reflect.DeepEqual(container.Command, pipeline.Spec.Command) {
+		statefulSet = statefulSet.DeepCopy()
 		statefulSet.Spec.Template.Spec.Containers[0].Image = pipeline.Spec.Image
 		statefulSet.Spec.Template.Spec.Containers[0].Command = pipeline.Spec.Command
+	}
+	if !reflect.DeepEqual(originSpec, statefulSet.Spec) {
 		statefulSet, err = pm.kubeclientset.AppsV1().StatefulSets(pipeline.Namespace).Update(statefulSet)
 		if err != nil {
 			pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
@@ -325,14 +354,183 @@ func (pm *PipelineManager) syncHandler(key string) error {
 		}
 	}
 
-	pipeline, err = pm.updatePipelineStatus(pipeline, statefulSet)
-	if err != nil {
-		if pipeline != nil {
-			pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
+	status := pipeline.Status.DeepCopy()
+	if statefulSet.Status.ReadyReplicas > 0 {
+		setPipelineCondition(status, api.PipelineCondition{
+			Type:               api.PipelineConditionRunning,
+			Status:             corev1.ConditionTrue,
+			Reason:             "PipelineRunning",
+			Message:            "Pipeline has ready pod",
+			LastUpdateTime:     metav1.Now(),
+			LastTransitionTime: metav1.Now(),
+		})
+		pod, err := pm.getRunningPodFromSelector(statefulSet.Namespace, statefulSet.Spec.Selector)
+		if err != nil {
+			return errors.Trace(err)
 		}
+		err = pm.updateStatusByPod(status, pod)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	} else {
+		if pipeline.Spec.Paused {
+			setPipelineCondition(status, api.PipelineCondition{
+				Type:               api.PipelineConditionRunning,
+				Status:             corev1.ConditionFalse,
+				Reason:             "PipelinePaused",
+				Message:            "Pipeline paused",
+				LastUpdateTime:     metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			})
+		} else {
+			setPipelineCondition(status, api.PipelineCondition{
+				Type:               api.PipelineConditionRunning,
+				Status:             corev1.ConditionFalse,
+				Reason:             "PipelineNotReady",
+				Message:            "Pipeline has no ready pod",
+				LastUpdateTime:     metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			})
+		}
+	}
+
+	if !reflect.DeepEqual(status, pipeline.Status) {
+		pipeline.Status = *status
+		pipeline, err := pm.pipeclientset.GravityV1alpha1().Pipelines(pipeline.Namespace).UpdateStatus(pipeline)
+		if err != nil {
+			if pipeline != nil {
+				pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
+			}
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
+func (pm *PipelineManager) syncBatch(pipeline *api.Pipeline) error {
+	err := pm.kubeclientset.AppsV1().StatefulSets(pipeline.Namespace).Delete(pipeline.Name, nil)
+	if err != nil && !apierrors.IsNotFound(err) {
 		return errors.Trace(err)
 	}
 
+	status := pipeline.Status.DeepCopy()
+
+	if pipeline.Spec.Paused { // job has no replica, delete it
+		err := pm.kubeclientset.BatchV1().Jobs(pipeline.Namespace).Delete(pipeline.Name, nil)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return errors.Trace(err)
+		}
+		setPipelineCondition(status, api.PipelineCondition{
+			Type:               api.PipelineConditionRunning,
+			Status:             corev1.ConditionFalse,
+			Reason:             "PipelinePaused",
+			Message:            "Pipeline paused",
+			LastUpdateTime:     metav1.Now(),
+			LastTransitionTime: metav1.Now(),
+		})
+	} else {
+		job, err := pm.jobLister.Jobs(pipeline.Namespace).Get(pipeline.Name)
+		if apierrors.IsNotFound(err) {
+			job, err = pm.kubeclientset.BatchV1().Jobs(pipeline.Namespace).Create(pm.newJob(pipeline))
+		}
+		// If an error occurs during Get/Create, we'll requeue the item so we can
+		// attempt processing again later. This could have been caused by a
+		// temporary network failure, or any other transient reason.
+		if err != nil {
+			pipelineUnavailable.WithLabelValues(pipeline.Name).Set(1)
+			pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
+			return errors.Trace(err)
+		}
+		if !metav1.IsControlledBy(job, pipeline) {
+			msg := fmt.Sprintf(MessageResourceExists, job.Name)
+			pm.recorder.Event(pipeline, corev1.EventTypeWarning, ErrResourceExists, msg)
+			return nil
+		}
+		pipelineUnavailable.WithLabelValues(pipeline.Name).Set(float64(job.Status.Failed))
+		container := job.Spec.Template.Spec.Containers[0]
+		if container.Image != pipeline.Spec.Image || !reflect.DeepEqual(container.Command, pipeline.Spec.Command) {
+			job.Spec.Template.Spec.Containers[0].Image = pipeline.Spec.Image
+			job.Spec.Template.Spec.Containers[0].Command = pipeline.Spec.Command
+			job, err = pm.kubeclientset.BatchV1().Jobs(pipeline.Namespace).Update(job)
+			if err != nil {
+				pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
+				return errors.Trace(err)
+			} else {
+				pm.recorder.Eventf(pipeline, corev1.EventTypeNormal, "Upgraded", "Upgraded job %s to %s:%s", job.Name,
+					pipeline.Spec.Image, pipeline.Spec.Command)
+			}
+		}
+		if job.Status.Succeeded > 0 {
+			setPipelineCondition(status, api.PipelineCondition{
+				Type:               api.PipelineConditionRunning,
+				Status:             corev1.ConditionFalse,
+				Reason:             "PipelineSucceed",
+				Message:            "Pipeline succeed",
+				LastUpdateTime:     metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			})
+		} else if job.Status.Failed > 0 {
+			setPipelineCondition(status, api.PipelineCondition{
+				Type:               api.PipelineConditionRunning,
+				Status:             corev1.ConditionFalse,
+				Reason:             "PipelineFailed",
+				Message:            "Pipeline failed",
+				LastUpdateTime:     metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			})
+		} else if job.Status.Active > 0 {
+			pod, err := pm.getRunningPodFromSelector(job.Namespace, job.Spec.Selector)
+			if err != nil {
+				setPipelineCondition(status, api.PipelineCondition{
+					Type:               api.PipelineConditionRunning,
+					Status:             corev1.ConditionFalse,
+					Reason:             "PipelineNotReady",
+					Message:            "Pipeline has no ready pod",
+					LastUpdateTime:     metav1.Now(),
+					LastTransitionTime: metav1.Now(),
+				})
+			} else {
+				setPipelineCondition(status, api.PipelineCondition{
+					Type:               api.PipelineConditionRunning,
+					Status:             corev1.ConditionTrue,
+					Reason:             "PipelineRunning",
+					Message:            "Pipeline has ready pod",
+					LastUpdateTime:     metav1.Now(),
+					LastTransitionTime: metav1.Now(),
+				})
+				err = pm.updateStatusByPod(status, pod)
+				if err != nil {
+					return errors.Trace(err)
+				}
+			}
+		} else {
+			setPipelineCondition(status, api.PipelineCondition{
+				Type:               api.PipelineConditionRunning,
+				Status:             corev1.ConditionFalse,
+				Reason:             "PipelineUnknown",
+				LastUpdateTime:     metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			})
+		}
+	}
+	setPipelineCondition(status, api.PipelineCondition{
+		Type:               api.PipelineConditionStream,
+		Status:             corev1.ConditionFalse,
+		Reason:             "BatchStage",
+		Message:            "Pipeline in batch stage",
+		LastUpdateTime:     metav1.Now(),
+		LastTransitionTime: metav1.Now(),
+	})
+	if !reflect.DeepEqual(status, pipeline.Status) {
+		pipeline.Status = *status
+		pipeline, err := pm.pipeclientset.GravityV1alpha1().Pipelines(pipeline.Namespace).UpdateStatus(pipeline)
+		if err != nil {
+			if pipeline != nil {
+				pm.recorder.Eventf(pipeline, corev1.EventTypeWarning, ErrSyncFailed, MessageSyncFailed, err.Error())
+			}
+			return errors.Trace(err)
+		}
+	}
 	return nil
 }
 
@@ -393,61 +591,7 @@ func (pm *PipelineManager) newStatefulSet(pipeline *api.Pipeline) *appsv1.Statef
 				Type: appsv1.RollingUpdateStatefulSetStrategyType,
 			},
 			ServiceName: pipeline.Name,
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: lbls,
-				},
-				Spec: corev1.PodSpec{
-					TerminationGracePeriodSeconds: int64Ptr(30),
-					RestartPolicy:                 corev1.RestartPolicyAlways,
-					Volumes: []corev1.Volume{
-						{
-							Name: "config",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{Name: pipeline.Name},
-								},
-							},
-						},
-					},
-					Containers: []corev1.Container{
-						{
-							Name:    "gravity",
-							Image:   pipeline.Spec.Image,
-							Command: pipeline.Spec.Command,
-							Ports: []corev1.ContainerPort{
-								{
-									Name:          "http",
-									ContainerPort: containerPort,
-								},
-							},
-							LivenessProbe: &corev1.Probe{
-								Handler: corev1.Handler{
-									HTTPGet: &corev1.HTTPGetAction{
-										Port: intstr.FromString("http"),
-										Path: "/healthz",
-									},
-								},
-								InitialDelaySeconds: 10,
-								TimeoutSeconds:      5,
-								PeriodSeconds:       10,
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "config",
-									MountPath: "/etc/gravity",
-								},
-							},
-							Resources: corev1.ResourceRequirements{ //TODO from tps config or metrics
-								Requests: corev1.ResourceList{
-									"cpu":    resource.MustParse("100m"),
-									"memory": resource.MustParse("150M"),
-								},
-							},
-						},
-					},
-				},
-			},
+			Template:    podTemplate(pipeline, corev1.RestartPolicyAlways),
 		},
 	}
 
@@ -459,73 +603,83 @@ func (pm *PipelineManager) newStatefulSet(pipeline *api.Pipeline) *appsv1.Statef
 	return statefulSet
 }
 
-func (pm *PipelineManager) updatePipelineStatus(origin *api.Pipeline, statefulSet *appsv1.StatefulSet) (*api.Pipeline, error) {
-	// NEVER modify objects from the store. It's a read-only, local cache.
-	// You can use DeepCopy() to make a deep copy of original object and modify this copy
-	// Or create a copy manually for better performance
-	pipeline := origin.DeepCopy()
+func (pm *PipelineManager) newJob(pipeline *api.Pipeline) *batchv1.Job {
+	lbls := pipeLabels(pipeline)
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pipeline.Name,
+			Namespace: pipeline.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(pipeline, api.SchemeGroupVersion.WithKind(api.PipelineResourceKind)),
+			},
+			Labels: lbls,
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit: int32Ptr(50),
+			Template:     podTemplate(pipeline, corev1.RestartPolicyOnFailure),
+		},
+	}
+}
 
-	status := api.PipelineStatus{
-		ObservedGeneration: pipeline.Generation,
-		Task:               pipeline.Spec.Task,
-		Position:           pipeline.Status.Position,
+func podTemplate(pipeline *api.Pipeline, rp corev1.RestartPolicy) corev1.PodTemplateSpec {
+	return corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: pipeLabels(pipeline),
+		},
+		Spec: corev1.PodSpec{
+			TerminationGracePeriodSeconds: int64Ptr(30),
+			RestartPolicy:                 rp,
+			Volumes: []corev1.Volume{
+				{
+					Name: "config",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{Name: pipeline.Name},
+						},
+					},
+				},
+			},
+			Containers: []corev1.Container{
+				{
+					Name:    "gravity",
+					Image:   pipeline.Spec.Image,
+					Command: pipeline.Spec.Command,
+					Ports: []corev1.ContainerPort{
+						{
+							Name:          "http",
+							ContainerPort: containerPort,
+						},
+					},
+					LivenessProbe: &corev1.Probe{
+						Handler: corev1.Handler{
+							HTTPGet: &corev1.HTTPGetAction{
+								Port: intstr.FromString("http"),
+								Path: "/healthz",
+							},
+						},
+						InitialDelaySeconds: 10,
+						TimeoutSeconds:      5,
+						PeriodSeconds:       10,
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "config",
+							MountPath: "/etc/gravity",
+						},
+					},
+					Resources: corev1.ResourceRequirements{ //TODO from tps config or metrics
+						Requests: corev1.ResourceList{
+							"cpu":    resource.MustParse("100m"),
+							"memory": resource.MustParse("150M"),
+						},
+					},
+				},
+			},
+		},
 	}
+}
 
-	for i := range pipeline.Status.Conditions {
-		if pipeline.Status.Conditions[i].Type == api.PipelineConditionIncremental {
-			pipeline.Status.Conditions[i].Type = api.PipelineConditionStream
-		}
-		status.Conditions = append(status.Conditions, pipeline.Status.Conditions[i])
-	}
-
-	var runningCond = api.PipelineCondition{
-		Type:               api.PipelineConditionRunning,
-		LastUpdateTime:     metav1.Now(),
-		LastTransitionTime: metav1.Now(),
-	}
-	if statefulSet.Status.ReadyReplicas < 1 {
-		runningCond.Status = corev1.ConditionFalse
-		if !pipeline.Spec.Paused {
-			runningCond.Reason = "PipelineNotReady"
-			runningCond.Message = "Pipeline has no ready statefulSet"
-		} else {
-			runningCond.Reason = "PipelinePaused"
-			runningCond.Message = "Pipeline paused"
-		}
-	} else {
-		runningCond.Status = corev1.ConditionTrue
-		runningCond.Reason = "PipelineReady"
-		runningCond.Message = "Pipeline has ready statefulSet"
-	}
-	setPipelineCondition(&status, runningCond)
-	if runningCond.Status == corev1.ConditionFalse {
-		if reflect.DeepEqual(pipeline.Status, status) {
-			return pipeline, nil
-		}
-		pipeline.Status = status
-		log.Infof("[updatePipelineStatus] namespace: %v, status: %v", pipeline.Namespace, pipeline.Status)
-		return pm.pipeclientset.GravityV1alpha1().Pipelines(pipeline.Namespace).UpdateStatus(pipeline)
-	}
-
-	selector, err := metav1.LabelSelectorAsSelector(statefulSet.Spec.Selector)
-	if err != nil {
-		return nil, err
-	}
-	pods, err := pm.podLister.Pods(pipeline.Namespace).List(selector)
-	if err != nil {
-		return nil, errors.Annotatef(err, "fail to list pod by statefulSet %s", statefulSet.Name)
-	}
-
-	if len(pods) != 1 {
-		return nil, errors.Errorf("expect 1 pod for statefulSet %s, actually %d", statefulSet.Name, len(pods))
-	}
-
-	pod := pods[0]
-
-	if !isPodReady(pod) {
-		return nil, errors.Errorf("pod %s not ready", pod.Name)
-	}
-
+func (pm *PipelineManager) updateStatusByPod(status *api.PipelineStatus, pod *corev1.Pod) error {
 	status.PodName = pod.Name
 	status.Image = pod.Spec.Containers[0].Image
 	status.Command = pod.Spec.Containers[0].Command
@@ -533,13 +687,10 @@ func (pm *PipelineManager) updatePipelineStatus(origin *api.Pipeline, statefulSe
 	url := fmt.Sprintf("http://%s:%d/status", pod.Status.PodIP, pod.Spec.Containers[0].Ports[0].ContainerPort)
 	reportStatus, err := getReportStatus(url)
 	if err != nil {
-		return nil, err
+		return errors.Trace(err)
 	}
-
-	if reportStatus.Name != pipeline.Name {
-		return nil, errors.Errorf("expect name %s, actual %s", pipeline.Name, reportStatus.Name)
-	}
-
+	status.ConfigHash = reportStatus.ConfigHash
+	status.Position = reportStatus.Position
 	stageCond := api.PipelineCondition{
 		Type:               api.PipelineConditionStream,
 		LastUpdateTime:     metav1.Now(),
@@ -548,46 +699,17 @@ func (pm *PipelineManager) updatePipelineStatus(origin *api.Pipeline, statefulSe
 	switch reportStatus.Stage {
 	case core.ReportStageIncremental:
 		stageCond.Status = corev1.ConditionTrue
-		runningCond.Reason = "IncrementalStage"
-		runningCond.Message = "Pipeline in incremental stage"
+		stageCond.Reason = "StreamStage"
+		stageCond.Message = "Pipeline in stream stage"
 	case core.ReportStageFull:
 		stageCond.Status = corev1.ConditionFalse
-		runningCond.Reason = "FullStage"
-		runningCond.Message = "Pipeline in full stage"
+		stageCond.Reason = "BatchStage"
+		stageCond.Message = "Pipeline in batch stage"
 	default:
-		return nil, errors.Errorf("unknown report stage %s", reportStatus.Stage)
+		return errors.Errorf("unknown report stage %s", reportStatus.Stage)
 	}
-	setPipelineCondition(&status, stageCond)
-
-	status.ConfigHash = reportStatus.ConfigHash
-	status.Position = reportStatus.Position
-
-	if reflect.DeepEqual(pipeline.Status, status) {
-		log.Infof("[updatePipelineStatus] identical status, ignore update. %#v", status)
-		return pipeline, nil
-	}
-
-	pipeline.Status = status
-	log.Debug("[updatePipelineStatus] namespace: %v, status: %v", pipeline.Namespace, pipeline.Status)
-
-	k8Version, err := pm.kubeclientset.Discovery().ServerVersion()
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	if k8Version.Major <= "1" && k8Version.Minor <= "10" {
-		p, err := pm.pipeclientset.GravityV1alpha1().Pipelines(pipeline.Namespace).Update(pipeline)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		return p, nil
-	} else {
-		p, err := pm.pipeclientset.GravityV1alpha1().Pipelines(pipeline.Namespace).UpdateStatus(pipeline)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		return p, nil
-	}
+	setPipelineCondition(status, stageCond)
+	return nil
 }
 
 func isPodReady(pod *corev1.Pod) bool {
@@ -737,6 +859,28 @@ func (pm *PipelineManager) resetRunning(pipeline *api.Pipeline) error {
 	}
 
 	return nil
+}
+
+func (pm *PipelineManager) getRunningPodFromSelector(namespace string, labelSelector *metav1.LabelSelector) (*corev1.Pod, error) {
+	selector, err := metav1.LabelSelectorAsSelector(labelSelector)
+	if err != nil {
+		return nil, err
+	}
+	pods, err := pm.podLister.Pods(namespace).List(selector)
+	if err != nil {
+		return nil, errors.Annotatef(err, "fail to list pod by selector %s", labelSelector.String())
+	}
+
+	if len(pods) != 1 {
+		return nil, errors.Errorf("expect 1 pod for selector %s, actually %d", labelSelector.String(), len(pods))
+	}
+
+	pod := pods[0]
+
+	if !isPodReady(pod) {
+		return nil, errors.Errorf("pod %s not ready", pod.Name)
+	}
+	return pod, nil
 }
 
 func (pm *PipelineManager) resetPaused(pipeline *api.Pipeline) error {

@@ -62,9 +62,7 @@ type PipelineConditionType string
 
 const (
 	PipelineConditionRunning PipelineConditionType = "Running"
-	//deprecated
-	PipelineConditionIncremental PipelineConditionType = "Incremental"
-	PipelineConditionStream      PipelineConditionType = "Stream"
+	PipelineConditionStream  PipelineConditionType = "Stream"
 )
 
 type PipelineCondition struct {
