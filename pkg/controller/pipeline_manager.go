@@ -307,8 +307,8 @@ func (pm *PipelineManager) syncNoneBatch(pipeline *api.Pipeline) error {
 	// If the resource doesn't exist, we'll create it
 	if apierrors.IsNotFound(err) {
 		_, err = pm.kubeclientset.CoreV1().Services(pipeline.Namespace).Create(pm.newHeadlessService(pipeline))
-		if err != nil {
-			return errors.Annotatef(err, "error create headless service for new stateful set")
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return errors.Annotatef(err, "error create headless service for %s", pipeline.Name)
 		}
 		statefulSet, err = pm.kubeclientset.AppsV1().StatefulSets(pipeline.Namespace).Create(pm.newStatefulSet(pipeline))
 	}
@@ -431,6 +431,10 @@ func (pm *PipelineManager) syncBatch(pipeline *api.Pipeline) error {
 	} else {
 		job, err := pm.jobLister.Jobs(pipeline.Namespace).Get(pipeline.Name)
 		if apierrors.IsNotFound(err) {
+			_, err = pm.kubeclientset.CoreV1().Services(pipeline.Namespace).Create(pm.newHeadlessService(pipeline))
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return errors.Annotatef(err, "error create headless service for %s", pipeline.Name)
+			}
 			job, err = pm.kubeclientset.BatchV1().Jobs(pipeline.Namespace).Create(pm.newJob(pipeline))
 		}
 		// If an error occurs during Get/Create, we'll requeue the item so we can
