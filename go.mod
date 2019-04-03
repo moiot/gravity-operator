@@ -13,13 +13,13 @@ require (
 	github.com/gin-gonic/gin v1.3.0
 	github.com/go-sql-driver/mysql v1.4.1
 	github.com/gofrs/uuid v3.2.0+incompatible // indirect
-	github.com/gogo/protobuf v1.2.0 // indirect
 	github.com/google/go-cmp v0.2.0 // indirect
 	github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf // indirect
 	github.com/googleapis/gnostic v0.2.0 // indirect
 	github.com/gregjones/httpcache v0.0.0-20181110185634-c63ab54fda8f // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.6.3 // indirect
 	github.com/hashicorp/go-getter v0.0.0-20190112230949-c68364a1fae1 // indirect
+	github.com/hashicorp/go-plugin v1.0.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.0 // indirect
 	github.com/imdario/mergo v0.3.6 // indirect
 	github.com/jinzhu/gorm v1.9.2 // indirect
@@ -34,11 +34,11 @@ require (
 	github.com/mitchellh/mapstructure v1.1.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
-	github.com/moiot/gravity v0.9.10
+	github.com/moiot/gravity v0.9.28
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pierrec/lz4 v2.0.5+incompatible // indirect
-	github.com/pingcap/parser v0.0.0-20181228022938-a4bdcab31117 // indirect
-	github.com/pingcap/tidb v0.0.0-20190103053936-32cfaf1dcc74 // indirect
+	github.com/pingcap/parser v0.0.0-20190118120648-5958b6fcdb2d // indirect
+	github.com/pingcap/tidb v0.0.0-20190118125846-54b6de0880f0 // indirect
 	github.com/pingcap/tipb v0.0.0-20181126132056-a7fd2aaa9719 // indirect
 	github.com/prometheus/client_golang v0.9.2
 	github.com/rcrowley/go-metrics v0.0.0-20181016184325-3113b8401b8a // indirect
@@ -52,7 +52,6 @@ require (
 	github.com/spf13/pflag v1.0.3 // indirect
 	github.com/ugorji/go/codec v0.0.0-20181209151446-772ced7fd4c2 // indirect
 	google.golang.org/appengine v1.4.0 // indirect
-	google.golang.org/grpc v1.17.0 // indirect
 	gopkg.in/DATA-DOG/go-sqlmock.v1 v1.3.0 // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	gopkg.in/go-playground/validator.v8 v8.18.2 // indirect
