@@ -10,6 +10,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/moiot/gravity/pkg/app"
+	"github.com/moiot/gravity/pkg/config"
+
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/moiot/gravity/pkg/utils/retry"
@@ -365,7 +368,34 @@ func (s *ApiServer) listPipe(c *gin.Context) {
 }
 
 func (s *ApiServer) deletePipe(c *gin.Context) {
-	err := s.pipeclientset.GravityV1alpha1().Pipelines(s.namespace).Delete(c.Param("name"), &metav1.DeleteOptions{})
+	name := c.Param("name")
+	configMaps, err := s.kubeclientset.CoreV1().ConfigMaps(s.namespace).Get(name, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("[ApiServer.deletePipe] error get config for %s. %v", name, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+		return
+	}
+	cfgV3 := &config.PipelineConfigV3{}
+	err = json.Unmarshal([]byte(configMaps.Data[pipeapi.ConfigFileKey]), cfgV3)
+	if err != nil {
+		log.Errorf("[ApiServer.deletePipe] error unmarshal gravity config: %s. err: %v", configMaps.Data[pipeapi.ConfigFileKey], err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+		return
+	}
+
+	srv, err := app.NewServer(*cfgV3)
+	if err != nil {
+		log.Errorf("[ApiServer.deletePipe] error parse gravity cfg: %s. %v.", configMaps.Data[pipeapi.ConfigFileKey], err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+		return
+	}
+	if err = srv.PositionCache.Clear(); err != nil {
+		log.Errorf("[ApiServer.deletePipe] error clear gravity position: %v.", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+		return
+	}
+
+	err = s.pipeclientset.GravityV1alpha1().Pipelines(s.namespace).Delete(name, &metav1.DeleteOptions{})
 	if err != nil {
 		log.Errorf("[ApiServer.deletePipe] %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
