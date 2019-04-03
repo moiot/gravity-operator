@@ -97,6 +97,7 @@ func NewClusterController(namespace string, kubeInformerFactory informers.Shared
 	cc.pm = newPipelineController(namespace,
 		kubeclientset, pipeClient,
 		kubeInformerFactory.Apps().V1().StatefulSets(),
+		kubeInformerFactory.Batch().V1().Jobs(),
 		kubeInformerFactory.Core().V1().Pods(),
 		cc.pipeLister,
 		kubeInformerFactory.Core().V1().ConfigMaps().Lister(),

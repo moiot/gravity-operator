@@ -4,13 +4,13 @@ fullnameOverride: ""
 deploymentRules:
   - group: "default"
     pipelines: ["*"]
-    image: "moiot/gravity:v0.9.15"
+    image: "moiot/gravity:v0.9.21"
     command: ["/gravity", "-config=/etc/gravity/config.json"]
 
 operator:
   image:
     repository: moiot/gravity-operator
-    tag: v0.2.0
+    tag: v0.3.0
     pullPolicy: IfNotPresent
   rolling: "25%"
   service:
