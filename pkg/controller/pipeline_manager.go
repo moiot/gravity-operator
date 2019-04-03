@@ -902,8 +902,7 @@ func (pm *PipelineManager) resetPaused(pipeline *api.Pipeline) error {
 	if err != nil {
 		return errors.Annotatef(err, "[PipelineManager.resetPaused] error NewServer")
 	}
-	server.PositionStore.Clear()
-	return nil
+	return server.PositionCache.Clear()
 }
 
 func int32Ptr(i int32) *int32 { return &i }

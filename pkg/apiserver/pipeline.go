@@ -81,7 +81,7 @@ func (apiPipeline *ApiPipeline) validate() error {
 	}
 
 	cfgV3.PipelineName = apiPipeline.Name
-	_, err = app.Parse(*cfgV3)
+	_, err = app.ParsePlugins(*cfgV3)
 	if err != nil {
 		return errors.Annotatef(err, "error parse gravity cfg: %s. %#v.", err, cfgV3)
 	}
