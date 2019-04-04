@@ -339,7 +339,6 @@ func (pm *PipelineManager) syncNoneBatch(pipeline *api.Pipeline) error {
 	}
 	container := statefulSet.Spec.Template.Spec.Containers[0]
 	if container.Image != pipeline.Spec.Image || !reflect.DeepEqual(container.Command, pipeline.Spec.Command) {
-		statefulSet = statefulSet.DeepCopy()
 		statefulSet.Spec.Template.Spec.Containers[0].Image = pipeline.Spec.Image
 		statefulSet.Spec.Template.Spec.Containers[0].Command = pipeline.Spec.Command
 	}
