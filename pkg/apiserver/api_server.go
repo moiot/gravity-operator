@@ -228,7 +228,13 @@ func (s *ApiServer) updatePipe(c *gin.Context) {
 		return
 	}
 
+	if pipeline.Generation != request.Generation {
+		c.JSON(http.StatusConflict, gin.H{"error": "pipeline has been updated. please retry."})
+		return
+	}
+
 	newPipeline := request.toK8()
+	newPipeline.ResourceVersion = pipeline.ResourceVersion
 	newPipeline, err = s.pipeclientset.GravityV1alpha1().Pipelines(s.namespace).Update(newPipeline)
 	if err != nil {
 		if apierrors.IsConflict(err) {
