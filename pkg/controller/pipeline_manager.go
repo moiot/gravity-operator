@@ -339,7 +339,6 @@ func (pm *PipelineManager) syncNoneBatch(pipeline *api.Pipeline) error {
 	}
 	container := statefulSet.Spec.Template.Spec.Containers[0]
 	if container.Image != pipeline.Spec.Image || !reflect.DeepEqual(container.Command, pipeline.Spec.Command) {
-		statefulSet = statefulSet.DeepCopy()
 		statefulSet.Spec.Template.Spec.Containers[0].Image = pipeline.Spec.Image
 		statefulSet.Spec.Template.Spec.Containers[0].Command = pipeline.Spec.Command
 	}
@@ -354,7 +353,12 @@ func (pm *PipelineManager) syncNoneBatch(pipeline *api.Pipeline) error {
 		}
 	}
 
-	status := pipeline.Status.DeepCopy()
+	status := &api.PipelineStatus{
+		ObservedGeneration: pipeline.Generation,
+		Task:               pipeline.Spec.Task,
+		Position:           pipeline.Status.Position,
+	}
+
 	if statefulSet.Status.ReadyReplicas > 0 {
 		setPipelineCondition(status, api.PipelineCondition{
 			Type:               api.PipelineConditionRunning,
@@ -413,7 +417,11 @@ func (pm *PipelineManager) syncBatch(pipeline *api.Pipeline) error {
 		return errors.Trace(err)
 	}
 
-	status := pipeline.Status.DeepCopy()
+	status := &api.PipelineStatus{
+		ObservedGeneration: pipeline.Generation,
+		Task:               pipeline.Spec.Task,
+		Position:           pipeline.Status.Position,
+	}
 
 	if pipeline.Spec.Paused { // job has no replica, delete it
 		err := pm.kubeclientset.BatchV1().Jobs(pipeline.Namespace).Delete(pipeline.Name, nil)
