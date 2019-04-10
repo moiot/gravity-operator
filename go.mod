@@ -34,7 +34,7 @@ require (
 	github.com/mitchellh/mapstructure v1.1.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
-	github.com/moiot/gravity v0.9.28
+	github.com/moiot/gravity v0.9.31
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pierrec/lz4 v2.0.5+incompatible // indirect
 	github.com/pingcap/parser v0.0.0-20190118120648-5958b6fcdb2d // indirect
