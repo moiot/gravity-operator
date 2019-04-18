@@ -10,17 +10,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/moiot/gravity/pkg/app"
-	"github.com/moiot/gravity/pkg/config"
-
-	"github.com/prometheus/client_golang/prometheus"
-
-	"github.com/moiot/gravity/pkg/utils/retry"
-
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
-
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -30,6 +23,10 @@ import (
 	pipeapi "github.com/moiot/gravity-operator/pkg/apis/pipeline/v1alpha1"
 	client "github.com/moiot/gravity-operator/pkg/client/pipeline/clientset/versioned"
 	"github.com/moiot/gravity-operator/pkg/controller"
+	"github.com/moiot/gravity-operator/pkg/utils"
+	"github.com/moiot/gravity/pkg/app"
+	"github.com/moiot/gravity/pkg/config"
+	"github.com/moiot/gravity/pkg/utils/retry"
 )
 
 var (
@@ -185,7 +182,7 @@ func (s *ApiServer) createPipe(c *gin.Context) {
 	config := request.newConfigMap(pipeline)
 	_, err = s.kubeclientset.CoreV1().ConfigMaps(s.namespace).Create(config)
 	if err != nil {
-		_ = s.pipeclientset.GravityV1alpha1().Pipelines(pipeline.Namespace).Delete(pipeline.Name, &metav1.DeleteOptions{})
+		_ = s.pipeclientset.GravityV1alpha1().Pipelines(pipeline.Namespace).Delete(pipeline.Name, utils.ForegroundDeleteOptions)
 		log.Errorf("[ApiServer.createPipe] error create config. %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 		return
@@ -401,7 +398,7 @@ func (s *ApiServer) deletePipe(c *gin.Context) {
 		return
 	}
 
-	err = s.pipeclientset.GravityV1alpha1().Pipelines(s.namespace).Delete(name, &metav1.DeleteOptions{})
+	err = s.pipeclientset.GravityV1alpha1().Pipelines(s.namespace).Delete(name, utils.ForegroundDeleteOptions)
 	if err != nil {
 		log.Errorf("[ApiServer.deletePipe] %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
@@ -546,7 +543,7 @@ func (s *ApiServer) updateCronJob(c *gin.Context) {
 func (s *ApiServer) deleteCronJob(c *gin.Context) {
 	jobName := c.Param("name")
 
-	err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Delete(jobName, nil)
+	err := s.kubeclientset.BatchV1beta1().CronJobs(s.namespace).Delete(jobName, utils.ForegroundDeleteOptions)
 	if err != nil {
 		log.Errorf("[ApiServer.deleteCronJob] failed to delete cronjob name: %v, err: %v", jobName, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err})
