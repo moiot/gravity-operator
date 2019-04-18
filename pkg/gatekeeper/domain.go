@@ -274,7 +274,7 @@ func (tc *TestCase) pipelineConfig() config.PipelineConfigV3 {
 				"table-configs": tableConfigs,
 			},
 		},
-		OutputPlugin: config.GenericConfig{
+		OutputPlugin: config.GenericPluginConfig{
 			Type: "mysql",
 			Config: map[string]interface{}{
 				"target": map[string]interface{}{
