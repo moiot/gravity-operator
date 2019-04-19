@@ -36,6 +36,7 @@ import (
 	client "github.com/moiot/gravity-operator/pkg/client/pipeline/clientset/versioned"
 	"github.com/moiot/gravity-operator/pkg/client/pipeline/clientset/versioned/scheme"
 	listers "github.com/moiot/gravity-operator/pkg/client/pipeline/listers/pipeline/v1alpha1"
+	"github.com/moiot/gravity-operator/pkg/utils"
 	"github.com/moiot/gravity/pkg/app"
 	"github.com/moiot/gravity/pkg/config"
 	"github.com/moiot/gravity/pkg/core"
@@ -298,7 +299,7 @@ func (pm *PipelineManager) syncHandler(key string) error {
 }
 
 func (pm *PipelineManager) syncNoneBatch(pipeline *api.Pipeline) error {
-	err := pm.kubeclientset.BatchV1().Jobs(pipeline.Namespace).Delete(pipeline.Name, nil)
+	err := pm.kubeclientset.BatchV1().Jobs(pipeline.Namespace).Delete(pipeline.Name, utils.ForegroundDeleteOptions)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return errors.Trace(err)
 	}
@@ -412,7 +413,7 @@ func (pm *PipelineManager) syncNoneBatch(pipeline *api.Pipeline) error {
 }
 
 func (pm *PipelineManager) syncBatch(pipeline *api.Pipeline) error {
-	err := pm.kubeclientset.AppsV1().StatefulSets(pipeline.Namespace).Delete(pipeline.Name, nil)
+	err := pm.kubeclientset.AppsV1().StatefulSets(pipeline.Namespace).Delete(pipeline.Name, utils.ForegroundDeleteOptions)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return errors.Trace(err)
 	}
@@ -424,7 +425,7 @@ func (pm *PipelineManager) syncBatch(pipeline *api.Pipeline) error {
 	}
 
 	if pipeline.Spec.Paused { // job has no replica, delete it
-		err := pm.kubeclientset.BatchV1().Jobs(pipeline.Namespace).Delete(pipeline.Name, nil)
+		err := pm.kubeclientset.BatchV1().Jobs(pipeline.Namespace).Delete(pipeline.Name, utils.ForegroundDeleteOptions)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return errors.Trace(err)
 		}
