@@ -257,7 +257,7 @@ func (cc *ClusterController) processNextWorkItem() bool {
 
 	if err != nil {
 		log.Error(err)
-		return false
+		return true
 	}
 
 	return true
