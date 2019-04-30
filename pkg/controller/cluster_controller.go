@@ -9,29 +9,29 @@ import (
 
 	"github.com/juju/errors"
 	log "github.com/sirupsen/logrus"
-	"k8s.io/client-go/informers"
-
-	clusterapi "github.com/moiot/gravity-operator/pkg/apis/cluster/v1alpha1"
-	pipeapi "github.com/moiot/gravity-operator/pkg/apis/pipeline/v1alpha1"
-	clusterclient "github.com/moiot/gravity-operator/pkg/client/cluster/clientset/versioned"
-	"github.com/moiot/gravity-operator/pkg/client/cluster/clientset/versioned/scheme"
-	clusterinformer "github.com/moiot/gravity-operator/pkg/client/cluster/informers/externalversions/cluster/v1alpha1"
-	clusterlister "github.com/moiot/gravity-operator/pkg/client/cluster/listers/cluster/v1alpha1"
-	pipeclient "github.com/moiot/gravity-operator/pkg/client/pipeline/clientset/versioned"
-	pipeinformer "github.com/moiot/gravity-operator/pkg/client/pipeline/informers/externalversions/pipeline/v1alpha1"
-	pipelister "github.com/moiot/gravity-operator/pkg/client/pipeline/listers/pipeline/v1alpha1"
-
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
+
+	clusterapi "github.com/moiot/gravity-operator/pkg/apis/cluster/v1alpha1"
+	pipeapi "github.com/moiot/gravity-operator/pkg/apis/pipeline/v1alpha1"
+	clusterclient "github.com/moiot/gravity-operator/pkg/client/cluster/clientset/versioned"
+	clusterschema "github.com/moiot/gravity-operator/pkg/client/cluster/clientset/versioned/scheme"
+	pipeschema "github.com/moiot/gravity-operator/pkg/client/cluster/clientset/versioned/scheme"
+	clusterinformer "github.com/moiot/gravity-operator/pkg/client/cluster/informers/externalversions/cluster/v1alpha1"
+	clusterlister "github.com/moiot/gravity-operator/pkg/client/cluster/listers/cluster/v1alpha1"
+	pipeclient "github.com/moiot/gravity-operator/pkg/client/pipeline/clientset/versioned"
+	pipeinformer "github.com/moiot/gravity-operator/pkg/client/pipeline/informers/externalversions/pipeline/v1alpha1"
+	pipelister "github.com/moiot/gravity-operator/pkg/client/pipeline/listers/pipeline/v1alpha1"
 )
 
 const controllerAgentName = "gravity-controller"
@@ -61,7 +61,8 @@ type ClusterController struct {
 	pipeSynced cache.InformerSynced
 	workqueue  workqueue.RateLimitingInterface
 
-	recorder record.EventRecorder
+	clusterRecorder record.EventRecorder
+	pipeRecorder    record.EventRecorder
 }
 
 func NewClusterController(namespace string, kubeInformerFactory informers.SharedInformerFactory,
@@ -72,26 +73,28 @@ func NewClusterController(namespace string, kubeInformerFactory informers.Shared
 	// Create event broadcaster
 	// Add gravity types to the default Kubernetes Scheme so Events can be
 	// logged for gravity types.
-	scheme.AddToScheme(scheme.Scheme)
+	clusterschema.AddToScheme(clusterschema.Scheme)
 
 	log.Info("Creating event broadcaster")
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(log.Infof)
 	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: kubeclientset.CoreV1().Events(namespace)})
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
+	clusterRecorder := eventBroadcaster.NewRecorder(clusterschema.Scheme, corev1.EventSource{Component: controllerAgentName})
+	pipeRecorder := eventBroadcaster.NewRecorder(pipeschema.Scheme, corev1.EventSource{Component: controllerAgentName})
 
 	cc := &ClusterController{
-		namespace:     namespace,
-		kubeclientset: kubeclientset,
-		clusterClient: clusterClient,
-		pipeClient:    pipeClient,
-		clusterLister: clusterInformer.Lister(),
-		clusterSynced: clusterInformer.Informer().HasSynced,
-		pipeLister:    pipeInformer.Lister(),
-		pipeSynced:    pipeInformer.Informer().HasSynced,
-		workqueue:     workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Cluster"),
-		recorder:      recorder,
-		cluster:       &atomic.Value{},
+		namespace:       namespace,
+		kubeclientset:   kubeclientset,
+		clusterClient:   clusterClient,
+		pipeClient:      pipeClient,
+		clusterLister:   clusterInformer.Lister(),
+		clusterSynced:   clusterInformer.Informer().HasSynced,
+		pipeLister:      pipeInformer.Lister(),
+		pipeSynced:      pipeInformer.Informer().HasSynced,
+		workqueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Cluster"),
+		clusterRecorder: clusterRecorder,
+		pipeRecorder:    pipeRecorder,
+		cluster:         &atomic.Value{},
 	}
 
 	cc.pm = newPipelineController(namespace,
@@ -334,32 +337,42 @@ func (cc *ClusterController) upgrade(c *clusterapi.Cluster, pipelines []*pipeapi
 	if err != nil {
 		return errors.Trace(err)
 	}
-	chosen := 0
+	upgrading := 0
+	toUpgrade := 0
+	errCnt := 0
 	for _, p := range pipelines {
 		rule := c.FindDeploymentRule(p.Name)
-		if rule == nil {
+		if rule == nil { //should not happen
 			return errors.Errorf("failed to find deployment rule, pipeline: %v", p.Name)
 		}
 
 		if rule.Image == p.Spec.Image && reflect.DeepEqual(rule.Command, p.Spec.Command) && !p.Spec.Paused &&
 			(!p.Status.Available() || p.Status.Image != p.Spec.Image || !reflect.DeepEqual(p.Status.Command, p.Spec.Command)) {
 			log.Infof("[ClusterController.upgrade] pipeline %s is upgrading", p.Name)
-			chosen += 1
+			upgrading += 1
 		} else if rule.Image != p.Spec.Image || !reflect.DeepEqual(rule.Command, p.Spec.Command) {
-			chosen += 1
+			toUpgrade += 1
 			log.Infof("[ClusterController] upgrade %s from %s(%s) to %s(%s)", p.Name, p.Spec.Image, p.Spec.Command, rule.Image, rule.Command)
 			p.Spec.Image = rule.Image
 			p.Spec.Command = rule.Command
 			_, err = cc.pipeClient.GravityV1alpha1().Pipelines(p.Namespace).Update(p)
 			if err != nil {
-				return errors.Annotatef(err, "[ClusterController] error update pipeline %s", p.Name)
+				errCnt += 1
+				toUpgrade -= 1
+				log.Infof("[ClusterController] update pipeline %s error, try next. err: %s", p.Name, err)
+			} else {
+				cc.clusterRecorder.Eventf(c, corev1.EventTypeNormal, "Upgraded", "Upgraded pipeline %s to %s(%s)", p.Name, rule.Image, rule.Command)
+				cc.pipeRecorder.Eventf(p, corev1.EventTypeNormal, "Upgraded", "Upgraded to %s(%s)", rule.Image, rule.Command)
 			}
-			cc.recorder.Eventf(c, corev1.EventTypeNormal, "Upgraded", "Upgraded pipeline %s to %s(%s)", p.Name, rule.Image, rule.Command)
-			cc.recorder.Eventf(p, corev1.EventTypeNormal, "Upgraded", "Upgraded pipeline %s to %s(%s)", p.Name, rule.Image, rule.Command)
 		}
 
-		if chosen == maxRolling {
+		if toUpgrade+upgrading == maxRolling {
+			log.Infof("[ClusterController] max rolling %d reached, try next round. upgrading: %d, toUpgrade: %d", maxRolling, upgrading, toUpgrade)
 			break
+		}
+
+		if errCnt > len(pipelines)/2 {
+			return errors.Errorf("[ClusterController] too many error while updating pipeline. #err: %d, total: %d", errCnt, len(pipelines))
 		}
 	}
 	return nil
