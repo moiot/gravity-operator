@@ -22,7 +22,6 @@ import (
 	"github.com/moiot/gravity-operator/pkg/apiserver"
 	"github.com/moiot/gravity/pkg/config"
 	"github.com/moiot/gravity/pkg/mysql_test"
-	"github.com/moiot/gravity/pkg/utils"
 )
 
 var inconsistent = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -333,7 +332,7 @@ func (tc *TestCase) dropDB() {
 	}
 }
 
-func getConfigFromDB(db *sql.DB) *utils.DBConfig {
+func getConfigFromDB(db *sql.DB) *config.DBConfig {
 	v := reflect.ValueOf(db).Elem()
 	connector := v.FieldByName("connector").Elem()
 	dsn := connector.FieldByName("dsn").String()
@@ -348,7 +347,7 @@ func getConfigFromDB(db *sql.DB) *utils.DBConfig {
 		if err != nil {
 			log.Panic(err)
 		}
-		config := &utils.DBConfig{
+		config := &config.DBConfig{
 			Host:                   addr[0],
 			Location:               cfg.Loc.String(),
 			Username:               cfg.User,
