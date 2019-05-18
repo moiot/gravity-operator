@@ -94,11 +94,6 @@ func newPipelineController(
 	pipeLister listers.PipelineLister,
 	configMapLister corelisters.ConfigMapLister) *PipelineManager {
 
-	// Create event broadcaster
-	// Add gravity types to the default Kubernetes Scheme so Events can be
-	// logged for gravity types.
-	scheme.AddToScheme(scheme.Scheme)
-
 	log.Info("Creating event broadcaster")
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(log.Infof)
