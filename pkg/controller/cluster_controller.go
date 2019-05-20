@@ -74,6 +74,7 @@ func NewClusterController(namespace string, kubeInformerFactory informers.Shared
 	// Add gravity types to the default Kubernetes Scheme so Events can be
 	// logged for gravity types.
 	clusterschema.AddToScheme(clusterschema.Scheme)
+	pipeschema.AddToScheme(pipeschema.Scheme)
 
 	log.Info("Creating event broadcaster")
 	eventBroadcaster := record.NewBroadcaster()
@@ -339,7 +340,6 @@ func (cc *ClusterController) upgrade(c *clusterapi.Cluster, pipelines []*pipeapi
 	}
 	upgrading := 0
 	toUpgrade := 0
-	errCnt := 0
 	for _, p := range pipelines {
 		rule := c.FindDeploymentRule(p.Name)
 		if rule == nil { //should not happen
@@ -352,30 +352,37 @@ func (cc *ClusterController) upgrade(c *clusterapi.Cluster, pipelines []*pipeapi
 			upgrading += 1
 		} else if rule.Image != p.Spec.Image || !reflect.DeepEqual(rule.Command, p.Spec.Command) {
 			toUpgrade += 1
-			log.Infof("[ClusterController] upgrade %s from %s(%s) to %s(%s)", p.Name, p.Spec.Image, p.Spec.Command, rule.Image, rule.Command)
-			p.Spec.Image = rule.Image
-			p.Spec.Command = rule.Command
-			_, err = cc.pipeClient.GravityV1alpha1().Pipelines(p.Namespace).Update(p)
-			if err != nil {
-				errCnt += 1
-				toUpgrade -= 1
-				log.Infof("[ClusterController] update pipeline %s error, try next. err: %s", p.Name, err)
-			} else {
-				cc.clusterRecorder.Eventf(c, corev1.EventTypeNormal, "Upgraded", "Upgraded pipeline %s to %s(%s)", p.Name, rule.Image, rule.Command)
-				cc.pipeRecorder.Eventf(p, corev1.EventTypeNormal, "Upgraded", "Upgraded to %s(%s)", rule.Image, rule.Command)
-			}
+			go cc.upgradeIgnoreConflict(p, rule)
 		}
 
 		if toUpgrade+upgrading == maxRolling {
 			log.Infof("[ClusterController] max rolling %d reached, try next round. upgrading: %d, toUpgrade: %d", maxRolling, upgrading, toUpgrade)
 			break
 		}
-
-		if errCnt > len(pipelines)/2 {
-			return errors.Errorf("[ClusterController] too many error while updating pipeline. #err: %d, total: %d", errCnt, len(pipelines))
-		}
 	}
 	return nil
+}
+
+func (cc *ClusterController) upgradeIgnoreConflict(p *pipeapi.Pipeline, rule *clusterapi.DeploymentRule) {
+	p.Spec.Image = rule.Image
+	p.Spec.Command = rule.Command
+	_, err := cc.pipeClient.GravityV1alpha1().Pipelines(p.Namespace).Update(p)
+	if err != nil {
+		if k8serrors.IsConflict(err) {
+			newP, getErr := cc.pipeLister.Pipelines(p.Namespace).Get(p.Name)
+			if getErr != nil {
+				log.Errorf("[ClusterController] update pipeline %s error: %s", p.Name, err)
+			} else {
+				cc.upgradeIgnoreConflict(newP, rule)
+			}
+		} else {
+			log.Errorf("[ClusterController] update pipeline %s error: %s", p.Name, err)
+		}
+	} else {
+		log.Infof("[ClusterController] upgraded %s from %s(%s) to %s(%s)", p.Name, p.Spec.Image, p.Spec.Command, rule.Image, rule.Command)
+		cc.clusterRecorder.Eventf(cc.GetCluster(), corev1.EventTypeNormal, "Upgraded", "Upgraded pipeline %s to %s(%s)", p.Name, rule.Image, rule.Command)
+		cc.pipeRecorder.Eventf(p, corev1.EventTypeNormal, "Upgraded", "Upgraded to %s(%s)", rule.Image, rule.Command)
+	}
 }
 
 func (cc *ClusterController) syncStatus(c *clusterapi.Cluster, pipelines []*pipeapi.Pipeline) (clusterapi.ClusterStatus, error) {
