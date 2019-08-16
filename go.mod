@@ -18,13 +18,12 @@ require (
 	github.com/jinzhu/inflection v0.0.0-20180308033659-04140366298a // indirect
 	github.com/juju/errors v0.0.0-20181118221551-089d3ea4e4d5
 	github.com/modern-go/reflect2 v1.0.1 // indirect
-	github.com/moiot/gravity v0.9.49
+	github.com/moiot/gravity v0.9.62
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/prometheus/client_golang v0.9.3-0.20190127221311-3c4408c8b829
 	github.com/serialx/hashring v0.0.0-20180504054112-49a4782e9908 // indirect
 	github.com/sirupsen/logrus v1.2.0
 	github.com/spf13/pflag v1.0.3 // indirect
-	github.com/tidwall/pretty v0.0.0-20190325153808-1166b9ac2b65 // indirect
 	github.com/ugorji/go/codec v0.0.0-20181209151446-772ced7fd4c2 // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	gopkg.in/go-playground/validator.v8 v8.18.2 // indirect
